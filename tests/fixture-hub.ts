@@ -1,14 +1,14 @@
 /**
- * Minimal in-process Yuyi Hub speaking protocol v2, for `dsh-yuyi` service
- * tests. Records every client frame and answers each request frame from
- * scriptable knobs, so suites assert both directions of the protocol without
- * a real relay.
+  * 讲协议 v2 的最小进程内 Yuyi Hub，供 `dsh-yuyi` 服务
+  * 测试使用。记录每个客户端帧，并按
+  * 可编排旋钮，套件因此无需真实中继
+  * 真实中继。
  */
 
 import { createServer, type Server } from 'node:http'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 
-/** Decode one ws message payload as UTF-8 text, whatever container it arrived in. */
+/* * 把一条 ws 消息载荷解码为 UTF-8 文本，无论其到达容器。 */
 function rawText(raw: RawData): string {
   if (Buffer.isBuffer(raw)) return raw.toString('utf8')
   if (Array.isArray(raw)) return Buffer.concat(raw).toString('utf8')
@@ -19,27 +19,27 @@ import type {
   PeerDevice, RosterSession, TaskDataFrame, TraceFrame, YuyiMessage,
 } from '../src/core.ts'
 
-/** The delivery ack a fixture `deliver` resolved with. */
+/* * fixture `deliver` 以之落定的投递 ack。 */
 export interface DeliverAck {
   ok: boolean
   detail?: string
   handlerSessionID?: string
 }
 
-/** One connected client socket plus its handshake. */
+/* * 一个已连接的客户端套接字及其握手。 */
 interface ClientConnection {
   socket: WebSocket
   hello: HelloFrame | undefined
 }
 
 /**
- * Scriptable fake Hub. Construct, `await start()`, point the service's `hub`
- * config at `url`, and read the recorded frames or drive `deliver`.
+  * 可编排的假 Hub。构造、`await start()`、把服务的 `hub`
+  * 配置指向 `url`，读记录帧或驱动 `deliver`。
  */
 export class FixtureHub {
-  /** Welcome features advertised after hello. */
+  /* * hello 后通告的 welcome 特性。 */
   features: readonly HubFeature[] = ['inbox', 'task', 'trace', 'hb_stats']
-  /** Welcome identity fields echoed back to the client. */
+  /* * 回显给客户端的 welcome 身份字段。 */
   welcomeIdentity = {
     agentId: '00000000-0000-0000-0000-0000000000f1',
     agentName: 'fixture-agent',
@@ -47,36 +47,36 @@ export class FixtureHub {
     ownerUserId: 'u-fixture',
     role: 'worker',
   } as const
-  /** Whether `send` frames ack ok, and with which delivery mode annotation. */
+  /* * `send` 帧是否 ack 成功，以及带哪种投递模式标注。 */
   sendAckOk = true
   sendAckDetail: string | undefined = undefined
   sendDeliveredAs: 'notify' | 'mail_fallback' | undefined = 'notify'
   sendHandlerSessionID: string | undefined = undefined
-  /** Whether `inbox/ack` frames ack ok. */
+  /* * `inbox/ack` 帧是否 ack 成功。 */
   inboxAckOk = true
-  /** Accept the connection but never answer hello, pinning the client in the connecting window. */
+  /* * 接受连接但永不回应 hello，把客户端钉在连接中窗口。 */
   silent = false
-  /** Answer hello with a welcome carrying no identity fields. */
+  /* * 用不带身份字段的 welcome 回应 hello。 */
   bareWelcome = false
-  /** Entries and remaining count served to `inbox/fetch`. */
+  /* * `inbox/fetch` 所服务的条目与剩余计数。 */
   inboxEntries: Array<{ message: YuyiMessage; receivedAt: number }> = []
   inboxRemaining = 0
-  /** Message ids consumed by `inbox/ack`; the hub deletes them. */
+  /* * `inbox/ack` 消费的消息 id；hub 会删除它们。 */
   readonly ackedInboxIds = new Set<string>()
-  /** Devices served to `peers` requests. */
+  /* * `peers` 请求所服务的设备列表。 */
   peersDevices: PeerDevice[] = []
-  /** Task index served to `task/fetch`; absent serves an empty task/data frame. */
+  /* * `task/fetch` 所服务的任务索引；缺省则回空 task/data 帧。 */
   taskIndexTask: TaskDataFrame['task'] = undefined
 
-  /** Every hello frame received, across connections. */
+  /* * 跨连接收到的每个 hello 帧。 */
   readonly helloFrames: HelloFrame[] = []
-  /** Every roster frame received, in order. */
+  /* * 按序收到的每个 roster 帧。 */
   readonly rosterFrames: RosterSession[][] = []
-  /** Every trace frame received. */
+  /* * 收到的每个 trace 帧。 */
   readonly traceFrames: TraceFrame[] = []
-  /** Every message carried by a `send` frame. */
+  /* * `send` 帧携带的每条消息。 */
   readonly sentMessages: YuyiMessage[] = []
-  /** Every ack frame received (our `deliver` replies). */
+  /* * 收到的每个 ack 帧（我们的 `deliver` 应答）。 */
   readonly deliverAcks: DeliverAck[] = []
 
   private readonly server: Server = createServer()
@@ -95,8 +95,8 @@ export class FixtureHub {
     })
   }
 
-  /** Bind the listener on an ephemeral loopback port.
-   * @returns the bound hub, for chaining.
+  /** 在临时回环端口上绑定监听器。
+    * @returns 绑定的 hub，供链式调用。
    */
   async start(): Promise<this> {
     await new Promise<void>((resolve) => { this.server.listen(0, '127.0.0.1', () => { resolve() }) })
@@ -106,7 +106,7 @@ export class FixtureHub {
     return this
   }
 
-  /** Terminate every client and close the listener. */
+  /* * 终止所有客户端并关闭监听器。 */
   async stop(): Promise<void> {
     for (const conn of this.connections) conn.socket.terminate()
     this.connections.clear()
@@ -115,7 +115,7 @@ export class FixtureHub {
     this.server.closeAllConnections?.()
   }
 
-  /** Whether at least one client completed the hello exchange. */
+  /* * 是否至少一个客户端完成了 hello 交换。 */
   hasClient(): boolean {
     for (const conn of this.connections) {
       if (conn.hello !== undefined) return true
@@ -124,9 +124,9 @@ export class FixtureHub {
   }
 
   /**
-   * Deliver one message to the (single) connected client and await its ack.
-   * @param message - the message as the hub would endorse it.
-   * @returns the ack the client sent back.
+    * 把一条消息投递给（唯一的）已连接客户端并等待其 ack。
+    * @param message - 按 hub 背书形态的消息。
+    * @returns 客户端发回的 ack。
    */
   deliver(message: YuyiMessage): Promise<DeliverAck> {
     const conn = [...this.connections][0]

@@ -1,10 +1,10 @@
 /**
- * Browser-bundle build: one CJS artifact in the harness client-module format
- * — `window.__ModuleLoader__.load({ id, factory })` with platform modules
- * (the seed table list) as externals and everything else inlined. CSS
- * Modules compile inside the bundle: importing `x.module.css` yields the
- * hashed class map and auto-injects one <style data-plugin="dsh-yuyi"> tag
- * at factory execution.
+  * 浏览器 bundle 构建：产出一个 harness client-module 格式的 CJS 产物
+  * —— `window.__ModuleLoader__.load({ id, factory })`，平台模块
+  * （种子表清单）作为外置依赖，其余全部内联。CSS
+  * 模块在 bundle 内编译：导入 `x.module.css` 得到
+  * 哈希类名映射，并自动注入一个 <style data-plugin="dsh-yuyi"> 标签
+  * 在工厂执行时。
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -13,7 +13,7 @@ import { defineConfig } from 'tsdown'
 
 const ID = 'dsh-yuyi'
 
-/** The browser module table's seed entries (harness packages/client/web/src/platform.ts). */
+/* * 浏览器模块表的种子条目（harness packages/client/web/src/platform.ts）。 */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
@@ -26,7 +26,7 @@ const PLATFORM_MODULES = [
 const CSS_VIRTUAL_PREFIX = '\0dsh-yuyi-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-/** Hash one local class name into a collision-free module-scoped name. */
+/* * 把一个本地类名哈希为模块作用域内无冲突的名字。 */
 function scopedClass(file: string, cls: string): string {
   return `${createHash('sha256').update(`${file}#${cls}`).digest('hex').slice(0, 10)}_${cls}`
 }
@@ -42,8 +42,8 @@ export default defineConfig({
   clean: false,
   sourcemap: true,
   external: [...PLATFORM_MODULES],
-  // tsdown auto-externalizes package dependencies; the module table answers
-  // only the platform list, so everything else (zod, local helpers) inlines.
+  // tsdown 会自动外置包依赖；模块表
+  // 只应答平台清单，其余（zod、本地辅助）一律内联。
   noExternal: (id: string) => (PLATFORM_MODULES as readonly string[]).includes(id) ? false : true,
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),

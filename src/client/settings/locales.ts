@@ -1,7 +1,7 @@
-/** Yuyi settings-section copy. */
+/* * 御驿设置区块文案。 */
 import type { YuyiConnectionField } from './settings-contract.ts'
 
-/** The section's Chinese dictionary; its keys define the copy contract. */
+/* * 区块的简体中文字典；其键定义文案契约。 */
 const zh = {
   'nav': '御驿',
   'title': '御驿连接',
@@ -30,13 +30,13 @@ const zh = {
   'note.loading': '正在读取设置…',
 } as const
 
-/** A copy key of the section's dictionary. */
+/* * 区块字典的一个文案键。 */
 export type YuyiSettingsKey = keyof typeof zh
 
-/** One dictionary's values over the shared key set. */
+/* * 一份字典在共享键集上的取值。 */
 export type YuyiSettingsDictionary = Record<YuyiSettingsKey, string>
 
-/** The section's English dictionary. */
+/* * 区块的英文字典。 */
 const en: YuyiSettingsDictionary = {
   'nav': 'Yuyi',
   'title': 'Yuyi connection',
@@ -65,17 +65,17 @@ const en: YuyiSettingsDictionary = {
   'note.loading': 'Loading settings…',
 }
 
-/** Namespace owning this section's copy. */
+/* * 本区块文案的命名空间。 */
 export const NS = 'settings.yuyi'
-/** The section's Chinese dictionary. */
+/* * 区块的简体中文字典。 */
 export { zh }
-/** The section's English dictionary. */
+/* * 区块的英文字典。 */
 export { en }
 
 /**
- * One field's label key, addressed as the component renders it.
- * @param field - the connection field whose label key to return.
- * @returns the dictionary key carrying the field's label.
+  * 一个字段的文案键，按组件渲染的方式寻址。
+  * @param field - 要返回文案键的连接字段。
+  * @returns 承载字段文案的字典键。
  */
 export function fieldLabelKey(field: YuyiConnectionField): YuyiSettingsKey {
   return `field.${field}`

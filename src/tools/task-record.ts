@@ -1,7 +1,7 @@
 /**
- * Task-record glue shared by `yuyi_send` and the task tools: appends
- * request/reply events into the durable `~/.yuyi/tasks/` record through the
- * vendored core, keeping file-format parity with the other Yuyi adapters.
+  * `yuyi_send` 与任务工具共享的任务记录粘合：把
+  * 请求/回信事件写进持久 `~/.yuyi/tasks/` 记录，经
+  * 钉住核心，与其他 Yuyi 适配器保持文件格式一致。
  * @module dsh-yuyi/tools/task-record
  */
 
@@ -13,36 +13,36 @@ import {
   type YuyiMessage,
 } from '../core.ts'
 
-/** Identity facts of the local connection, filled from the service status. */
+/* * 本地连接的身份事实，由服务状态填充。 */
 export interface LocalIdentity {
   readonly agentId?: string
   readonly ownerUsername?: string
   readonly device: string
 }
 
-/** Append-result summary surfaced in tool values. */
+/* * 工具值里呈现的追加结果摘要。 */
 export interface TaskRecordOutcome {
   recorded: boolean
   reason?: 'cap' | 'duplicate' | 'io' | 'bad_task_id'
 }
 
 /**
- * Translate one append result for a canonical value.
- * @param result - the core append outcome.
- * @returns the canonical record outcome.
+  * 把一个追加结果转译为规范值。
+  * @param result - 核心追加结果。
+  * @returns 规范的记录结果。
  */
 export function outcomeOf(result: AppendResult): TaskRecordOutcome {
   return result.ok ? { recorded: true } : { recorded: false, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
 }
 
 /**
- * Ensure the task record exists (append a `created` event on first touch) and
- * append this send as a `request` round.
- * @param taskId - the task the send belongs to.
- * @param identity - local connection identity recorded as the owner/author.
- * @param message - the outgoing message.
- * @param text - the message body.
- * @returns the request append outcome.
+  * 确保任务记录存在（首次触碰追加 `created` 事件），并
+  * 把本次发送作为一轮 `request` 追加。
+  * @param taskId - 发送所属的任务。
+  * @param identity - 记录为所有者/作者的本地连接身份。
+  * @param message - 发出的消息。
+  * @param text - 消息正文。
+  * @returns 请求追加结果。
  */
 export function recordTaskRequest(taskId: string, identity: LocalIdentity, message: YuyiMessage, text: string): TaskRecordOutcome[] {
   const results: TaskRecordOutcome[] = []
@@ -77,10 +77,10 @@ export function recordTaskRequest(taskId: string, identity: LocalIdentity, messa
 }
 
 /**
- * Append one arrived reply into the task record (idempotent by msgId).
- * @param taskId - the task the reply belongs to.
- * @param reply - the reply message as the hub endorsed it.
- * @returns the reply append outcome, or undefined when the task has no record.
+  * 把到达的回信追加进任务记录（按 msgId 幂等）。
+  * @param taskId - 回信所属的任务。
+  * @param reply - 按 hub 背书形态的回信。
+  * @returns 回信追加结果；任务无记录时为 undefined。
  */
 export function recordTaskReply(taskId: string, reply: YuyiMessage): TaskRecordOutcome | undefined {
   if (readTask(taskId).events.length === 0) return undefined

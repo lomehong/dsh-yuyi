@@ -78,7 +78,7 @@ async function startHub(): Promise<FixtureHub> {
   return hub
 }
 
-/** A fully mounted tool suite whose hub is an unreachable port. */
+/* * 工具套件完整挂载但 hub 端口不可达。 */
 async function startDeadService(): Promise<{
   service: import('@deepseek-ai/dsh-yuyi').default
   execute: (name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>
@@ -268,7 +268,7 @@ describe('task tools', () => {
     expect(shown.incomplete).toBe(false)
     expect(shown.snapshot).toContain('task-show-1')
 
-    // An attach-only record is incomplete; the hub index answers when it has one.
+    // 仅 attach 的记录不完整；hub 索引有记录时自会回答。
     await execute('yuyi_task_attach', { task_id: 'task-show-2' })
     hub.taskIndexTask = { taskId: 'task-show-2', participants: ['a', 'b'], messageCount: 3, firstAt: 1, lastAt: 2 }
     const incomplete = await execute('yuyi_task_show', { task_id: 'task-show-2' }) as { hubIndex?: string }
@@ -660,7 +660,7 @@ describe('optional-branch coverage: complementary sides', () => {
     const missing = await execute('yuyi_task_compact', { task_id: 'task-absent-9' }) as { records: Array<{ recorded: boolean; reason?: string }> }
     expect(missing.records[0]?.recorded).toBe(false)
     expect(missing.records[0]?.reason).toBe('not_found')
-    // Close and archive are idempotent on absent tasks; an invalid id is what refuses.
+    // close 与 archive 对缺失任务幂等；拒绝的是无效 id。
     await execute('yuyi_task_close', { task_id: 'task-absent-9' })
     await execute('yuyi_task_archive', { task_id: 'task-absent-9' })
     const badClose = await execute('yuyi_task_close', { task_id: 'bad id!' }) as { records: Array<{ recorded: boolean; reason?: string }> }

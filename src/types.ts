@@ -1,6 +1,6 @@
 /**
- * Public types of the yuyi capability seam: the status snapshot, roster entry,
- * send request and result, delivery routes, and the seam's error class.
+  * yuyi 能力接缝的公开类型：状态快照、roster 条目、
+  * 发送请求与结果、投递路由与接缝的错误类。
  * @module dsh-yuyi/types
  */
 
@@ -8,7 +8,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { YuyiMessage } from './core.ts'
 
-/** Stable failure codes of the yuyi seam; route on these, never on message prose. */
+/* * yuyi 接缝的稳定失败码；按这些路由，绝不按消息文案。 */
 export type YuyiErrorCode =
   | 'YUYI_NOT_CONFIGURED'
   | 'YUYI_NOT_CONNECTED'
@@ -18,29 +18,29 @@ export type YuyiErrorCode =
   | 'YUYI_REPLY_ABORTED'
 
 /**
- * A failure surfaced by the yuyi seam with a stable machine-routable code.
- * Constructed as `new YuyiError(message, code[, options])`.
+  * yuyi 接缝抛出的失败，带稳定的机器可路由错误码。
+  * 以 `new YuyiError(message, code[, options])` 构造。
  */
 export class YuyiError extends HarnessError {}
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
-     * The recomputed yuyi connection snapshot changed (configuration resolved,
-     * handshake completed or lost, unread counts moved). Listener failures are
-     * contained.
-     * @param payload.status - the fresh status snapshot.
+      * 重算后的 yuyi 连接快照发生变化（配置已解析、
+      * 握手完成或丢失、未读数移动）。监听器失败
+      * 被遏制。
+      * @param payload.status - 新鲜的状态快照。
      * @mode emit
      */
     'yuyi/status'(payload: { status: YuyiStatus }): void
     /**
-     * One delivered message was routed locally. Emitted after the routing
-     * decision (wake, steer, or inbox parking) was made; the durable
-     * transcript event for a woken session is owned by the agent loop.
-     * Listener failures are contained.
-     * @param payload.message - the delivered message as the hub endorsed it.
-     * @param payload.route - the local routing decision.
-     * @param payload.sessionId - the roster session the message targeted, when one matched.
+      * 一条已投递消息在本地被路由。路由决策
+      * 决策（唤醒、steer 或入箱停靠）做出后发出；持久
+      * 被唤醒会话的转录事件由 agent 循环拥有。
+      * 监听器失败被遏制。
+      * @param payload.message - 按 hub 背书形态的已投递消息。
+      * @param payload.route - 本地路由决策。
+      * @param payload.sessionId - 消息命中的 roster 会话（有命中时）。
      * @mode emit
      */
     'yuyi/delivered'(payload: { message: YuyiMessage; route: YuyiDeliveryRoute; sessionId?: SessionId }): void
@@ -48,35 +48,35 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Config for the yuyi seam. `hub`, `device`, and the token reference resolve
- * from config first, then the launch environment (`YUYI_HUB`, `YUYI_DEVICE`,
- * and the `tokenEnv` name), then the yuyi env file (`~/.yuyi/env`, the file
- * the hub installer writes); the device falls back to the hostname.
+  * yuyi 接缝的配置。`hub`、`device` 与令牌引用
+  * 先从 config，再启动环境（`YUYI_HUB`、`YUYI_DEVICE`、
+  * 与 `tokenEnv` 名）之后是 yuyi 环境文件（`~/.yuyi/env`，
+  * hub 安装器写的文件）；device 回落主机名。
  */
 export interface YuyiConfig {
-  /** Explicit hub WebSocket URL; omitted resolves from the environment chain. */
+  /* * 显式 hub WebSocket URL；省略则经环境链解析。 */
   readonly hub?: string
-  /** Credential reference name holding the Yufu agent token. */
+  /* * 持有御符 agent 令牌的凭证引用名。 */
   readonly tokenEnv: string
-  /** Explicit device label; omitted resolves from the environment chain or hostname. */
+  /* * 显式设备名；省略则经环境链或主机名解析。 */
   readonly device?: string
-  /** How long `sendExpectingReply` waits before failing with `YUYI_REPLY_TIMEOUT`. */
+  /* * `sendExpectingReply` 在以 `YUYI_REPLY_TIMEOUT` 失败前等待多久。 */
   readonly replyTimeoutMs: number
 }
 
-/** One session registered into the local roster; the addressable unit for delivery. */
+/* * 注册进本地 roster 的一个会话；投递的可寻址单元。 */
 export interface YuyiRosterEntry {
-  /** The registered session's id; also its plain-string inbox key. */
+  /* * 已注册会话的 id；也是其纯字符串收件箱键。 */
   readonly sessionId: SessionId
-  /** Short human label, shown to remote peers. */
+  /* * 展示给远端 peer 的简短人类可读名。 */
   readonly title: string
-  /** Working directory of the session, shown to remote peers. */
+  /* * 会话的工作目录，展示给远端 peer。 */
   readonly directory: string
-  /** Alias other agents may address this session by; unique per process. */
+  /* * 其他 agent 寻址本会话所用的别名；进程内唯一。 */
   readonly name?: string
 }
 
-/** How one delivered message was routed locally. */
+/* * 一条已投递消息在本地被如何路由。 */
 export type YuyiDeliveryRoute =
   | 'woken'
   | 'steered'
@@ -84,72 +84,72 @@ export type YuyiDeliveryRoute =
   | 'device-inbox'
   | 'echo-dropped'
 
-/** Connection-level facts recomputed on every state transition. */
+/* * 每次状态转移时重算的连接级事实。 */
 export interface YuyiStatus {
-  /** Whether hub and token resolved; false means the seam stays dormant. */
+  /* * hub 与 token 是否已解析；false 表示接缝保持休眠。 */
   readonly configured: boolean
-  /** Whether the handshake completed (a welcome frame arrived). */
+  /* * 握手是否完成（welcome 帧已到达）。 */
   readonly connected: boolean
-  /** The resolved hub WebSocket URL, or the empty string when unresolved. */
+  /* * 已解析的 hub WebSocket URL，未解析时为空串。 */
   readonly hub: string
-  /** The device label this connection reports. */
+  /* * 本连接上报的设备名。 */
   readonly device: string
-  /** Hub-reported agent id (authoritative identity); absent before welcome. */
+  /* * Hub 上报的 agent id（权威身份）；welcome 前缺省。 */
   readonly agentId?: string
-  /** Hub-reported agent name (authoritative identity); absent before welcome. */
+  /* * Hub 上报的 agent 名（权威身份）；welcome 前缺省。 */
   readonly agentName?: string
-  /** Hub-reported owner username; absent before welcome. */
+  /* * Hub 上报的所有者用户名；welcome 前缺省。 */
   readonly ownerUsername?: string
-  /** Hub-reported role (avatar/worker/coder); absent before welcome. */
+  /* * Hub 上报的角色（avatar/worker/coder）；welcome 前缺省。 */
   readonly role?: string
-  /** The most recent connection error description, if any. */
+  /* * 最近的连接错误描述（如有）。 */
   readonly lastError?: string
-  /** Hub-side unread mail count from the last heartbeat, when known. */
+  /* * 最近一次心跳得到的 hub 侧未读邮件数（已知时）。 */
   readonly hubUnread?: number
-  /** Local device-inbox unread count (parked messages with no roster match). */
+  /* * 本地设备收件箱未读数（无 roster 命中的停靠消息）。 */
   readonly deviceUnread: number
-  /** The current local roster, in registration order. */
+  /* * 当前本地 roster，按注册顺序。 */
   readonly sessions: readonly YuyiRosterEntry[]
 }
 
-/** A request to send one message through the hub. */
+/* * 经 hub 发送一条消息的请求。 */
 export interface YuyiSendRequest {
-  /** Address: `*`, alias, session id, `device:target`, or `owner/device:target`. */
+  /* * 地址：`*`、别名、会话 id、`device:target` 或 `owner/device:target`。 */
   readonly to: string
-  /** Message body the recipient's model will read. */
+  /* * 接收方模型将读取的消息正文。 */
   readonly text: string
-  /** `notify` wakes the recipient; `mail` parks in an inbox. */
+  /* * `notify` 唤醒接收方；`mail` 停入收件箱。 */
   readonly mode: 'notify' | 'mail'
-  /** Sending session; fills the authoritative `from` fields when registered. */
+  /* * 发送会话；注册后填充权威 `from` 字段。 */
   readonly fromSession?: SessionId
-  /** A2A task id the reply thread belongs to. */
+  /* * 回信线程所属的 A2A 任务 id。 */
   readonly taskId?: string
-  /** Message id this message responds to. */
+  /* * 本消息回应的消息 id。 */
   readonly replyTo?: string
-  /** Request an automatic reply from the recipient. */
+  /* * 请求接收方自动回信。 */
   readonly expectReply?: boolean
-  /** Data classification hint (e.g. `high-risk`) for hub-side policy. */
+  /* * 供 hub 侧策略使用的数据分级提示（如 `high-risk`）。 */
   readonly classification?: string
-  /** Weak delivery hint rendered by peers; never used for routing. */
+  /* * peer 渲染的弱投递提示；绝不用于路由。 */
   readonly contextHint?: string
 }
 
-/** The delivery outcome the hub acknowledged for one sent message. */
+/* * hub 为一条已发送消息确认的投递结果。 */
 export interface YuyiSendResult {
-  /** The message as built and acknowledged, for durable task records. */
+  /* * 按构建并确认的消息形态，供持久任务记录。 */
   readonly message: YuyiMessage
-  /** The id of the sent message; the idempotency key for retries and task records. */
+  /* * 已发送消息的 id；重试与任务记录的幂等键。 */
   readonly messageId: string
-  /** `notify` for live delivery, `mail_fallback` when degraded to inbox; absent for other acks. */
+  /* * 实时投递为 `notify`，降级入箱为 `mail_fallback`；其他 ack 缺省。 */
   readonly deliveredAs?: 'notify' | 'mail_fallback'
-  /** Session id the recipient side reported as handler, when reported. */
+  /* * 接收方上报为处理者的会话 id（有上报时）。 */
   readonly handlerSessionID?: string
 }
 
-/** The outcome of one send-with-reply exchange. */
+/* * 一次发送并等回复交互的结果。 */
 export interface YuyiReplyResult {
-  /** The message this side sent, as built and acknowledged. */
+  /* * 本侧发送的消息，按构建并确认的形态。 */
   readonly sent: YuyiMessage
-  /** The correlated reply, as the hub endorsed it. */
+  /* * 关联的回信，按 hub 背书的形态。 */
   readonly reply: YuyiMessage
 }

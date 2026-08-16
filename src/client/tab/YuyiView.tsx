@@ -1,8 +1,8 @@
 /**
- * The Yuyi conversation-view tab: connection block, local roster, and the
- * parked device/session inboxes. All reads go through the yuyi Remote and
- * peek (never drain) so the model-facing `yuyi_inbox` tool stays the owner
- * of consumption; `yuyi/status` forwards refresh the connection block live.
+  * 御驿会话视图标签页：连接块、本地 roster 与
+  * 停靠的设备/会话收件箱。所有读取都走 yuyi Remote 并
+  * 只窥视（绝不取走），使模型侧 `yuyi_inbox` 工具保持
+  * 消费的归属；`yuyi/status` 转发实时刷新连接块。
  */
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -12,18 +12,18 @@ import type { YuyiInboxRow, YuyiTabModel } from './model.ts'
 import { connectionState, inboxRows } from './model.ts'
 import css from './YuyiView.module.css'
 
-/** Injected hooks the view reads through (the remote namespace reads). */
+/* * 视图读取所经的注入钩子（remote 命名空间读取）。 */
 export interface YuyiViewInjected {
   readStatus: () => PromiseLike<YuyiStatus>
   readInbox: (target: 'device' | 'session', peek: boolean) => PromiseLike<YuyiInboxRow[]>
   onStatusChange: (listener: () => void) => () => void
 }
 
-/** Full props for the Yuyi tab: the standard kit, locale, and the flattened injected reads. */
+/* * 御驿标签页的完整 props：标准套件、locale 与扁平化注入的读取面。 */
 export type YuyiViewProps =
   PropsRuntime<'conversation.view'> & PropsLocale<typeof NS> & YuyiViewInjected
 
-/** The empty model shown before the first read lands. */
+/* * 首次读取到达前展示的空模型。 */
 const EMPTY: YuyiTabModel = {
   state: 'unconfigured',
   device: '',
@@ -32,7 +32,7 @@ const EMPTY: YuyiTabModel = {
   sessionInbox: [],
 }
 
-/** One titled section wrapper. */
+/* * 一个带标题的区块包装。 */
 function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
   return (
     <section className={css.section}>
@@ -43,9 +43,9 @@ function Section({ title, children }: { title: string; children: ReactNode }): J
 }
 
 /**
- * The tab body.
- * @param props - runtime kit, locale, and the injected remote reads.
- * @returns the rendered tab.
+  * 标签页主体。
+  * @param props - 运行时套件、locale 与注入的 remote 读取面。
+  * @returns 渲染出的标签页。
  */
 export function YuyiView(props: YuyiViewProps): JSX.Element {
   const { t, readStatus, readInbox, onStatusChange } = props

@@ -1,9 +1,9 @@
 /**
- * Yuyi settings section: a live connection-status card over the `yuyi/status`
- * Remote event, and one input row per connection field over the `yuyi`
- * settings namespace. The token itself is never shown or stored here — the
- * `tokenEnv` field only names the environment variable the host resolves
- * through, so the section reports token presence, never its value.
+  * 御驿设置区块：基于 `yuyi/status`
+  * Remote 事件；每个连接字段一行输入，走 `yuyi`
+  * 设置命名空间。令牌本身从不在此展示或存储——
+  * `tokenEnv` 字段只命名宿主解析所用的环境变量，
+  * 穿过，因此区块只报告令牌存在性，绝不显示其值。
  */
 import { useEffect, useState } from 'react'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -13,49 +13,49 @@ import { fieldLabelKey } from './locales.ts'
 import { draftValid, draftWrite, fieldDraft, userOverrides } from './model.ts'
 import css from './YuyiSettingsSection.module.css'
 
-/** The settings-snapshot fields the section consumes. */
+/* * 区块消费的设置快照字段。 */
 export interface YuyiSettingsView {
-  /** `loading` until the first acceptance, `unavailable` to read-only clients. */
+  /* * 首次接受前为 `loading`，只读客户端为 `unavailable`。 */
   status: 'loading' | 'ready' | 'unavailable'
-  /** Last accepted schema-resolved section; undefined before the first acceptance. */
+  /* * 最近一次接受的经 schema 解析的节；首次接受前为 undefined。 */
   value: YuyiSettingsValue | undefined
-  /** Raw user layer; field presence marks an override. */
+  /* * 原始用户层；字段存在即覆盖。 */
   user: unknown
-  /** Whether the Host document accepts writes. */
+  /* * 宿主文档是否接受写入。 */
   writable: boolean
 }
 
-/** Registration-side business face for the section. */
+/* * 区块注册侧的业务面。 */
 export interface YuyiSettingsSectionInjected {
   hooks: {
-    /** `yuyi` settings scope bound by the renderer as useSettings. */
+    /* * 渲染器绑定为 useSettings 的 `yuyi` 设置作用域。 */
     settings: HostObservable<YuyiSettingsView>
-    /** Connection-status mirror bound by the renderer as useStatus. */
+    /* * 渲染器绑定为 useStatus 的连接状态镜像。 */
     status: HostObservable<YuyiStatusState>
   }
-  /** Commit one field's new value into the settings user layer. */
+  /* * 把一个字段的新值提交进设置用户层。 */
   save: (field: YuyiConnectionField, value: string | number) => Promise<void>
-  /** Clear one field's user override so it re-inherits the composition layer. */
+  /* * 清除一个字段的用户覆盖，使其重新继承组合层。 */
   reset: (field: YuyiConnectionField) => Promise<void>
 }
 
-/** Full component props. */
+/* * 完整组件 props。 */
 export type YuyiSettingsSectionProps =
   PropsRuntime<'settings.section'>
   & PropsLocale<'settings.yuyi'>
   & InjectFace<YuyiSettingsSectionInjected>
 
 /**
- * Render the Yuyi connection settings section.
- * @param props - composed slot props.
- * @returns the section element tree.
+  * 渲染御驿连接设置区块。
+  * @param props - 组合插槽 props。
+  * @returns 区块元素树。
  */
 export function YuyiSettingsSection({ useSettings, useStatus, save, reset, t }: YuyiSettingsSectionProps) {
   const settings = useSettings(snapshot => snapshot)
   const statusState = useStatus(snapshot => snapshot)
   const [drafts, setDrafts] = useState<Partial<Record<YuyiConnectionField, string>>>({})
-  // A fresh Host acceptance replaces every field's basis, so pending drafts
-  // from the superseded section are discarded rather than silently carried.
+  // 宿主新接受会替换每个字段的基准，被取代节里
+  // 挂起草稿被丢弃而非静默沿用。
   useEffect(() => { setDrafts({}) }, [settings.value])
 
   const status = statusState.current

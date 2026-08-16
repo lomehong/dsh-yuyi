@@ -1,17 +1,17 @@
 /**
- * Service Definition for the yuyi communication capability seam (`ctx.yuyi`):
- * owns the single Hub WebSocket connection for the process, the local session
- * roster, wake delivery routing into live dsh agents, and the expect-reply
- * correlation. Connection fields are user-editable through the `yuyi`
- * user-settings namespace (over the composition entry); committed changes
- * restart the connection live. Unconfigured deployments stay dormant — every
- * method fails with `YUYI_NOT_CONFIGURED` instead of degrading silently.
+  * yuyi 通信能力接缝的服务定义（`ctx.yuyi`）：
+  * 拥有进程唯一的 Hub WebSocket 连接、本地会话
+  * roster、进活跃 dsh agent 的唤醒投递路由与等回复
+  * 关联。连接字段经 `yuyi`
+  * 用户设置命名空间（覆盖组合条目）；提交的变更
+  * 即时重连。未配置的部署保持休眠——每个
+  * 方法以 `YUYI_NOT_CONFIGURED` 失败，而非静默降级。
  *
- * Delivery routing follows the wake pattern of `dsh-tool-jobs`: a notify for a
- * roster session whose agent is idle submits a follow-up turn (waking it); a
- * running agent receives steering for its next step boundary. The agent loop
- * owns the durable `user/message` event when it claims the message, so this
- * seam never appends session-log events itself.
+  * 投递路由遵循 `dsh-tool-jobs` 的唤醒模式：命中 roster 中
+  * 空闲 agent 的 notify 提交 follow-up 回合（唤醒它）；
+  * 运行中的 agent 在下一个步边界收到 steer。agent 循环
+  * 在认领消息时拥有持久 `user/message` 事件，因此本
+  * 接缝绝不自行追加会话日志事件。
  * @module dsh-yuyi
  */
 
@@ -59,21 +59,21 @@ export type { InboxEntry, PeerDevice, YuyiMessage } from './core.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** The yuyi communication service (provided by this package's plugin). */
+    /* * yuyi 通信服务（由本包的插件提供）。 */
     yuyi: YuyiRuntime
   }
 }
 
-/** Default wait for an expected reply before the send-with-reply method fails. */
+/* * 发送并等回复方法失败前的默认等待时长。 */
 const DEFAULT_REPLY_TIMEOUT_MS = 300_000
 
-/** Settings namespace this seam registers; user edits land as live reconnects. */
+/* * 本接缝注册的设置命名空间；用户编辑即时落地为重连。 */
 const SETTINGS_NAMESPACE = settingsNamespace('yuyi')
 
-/** Inbox key for messages that match no roster session (device-level parking). */
+/* * 未命中任何 roster 会话的消息的收件箱键（设备级停靠）。 */
 const DEVICE_INBOX_KEY = 'device'
 
-/** One registered expect-reply waiter. */
+/* * 一个已注册的等回复等待者。 */
 interface PendingReply {
   resolve: (message: YuyiMessage) => void
   reject: (err: Error) => void
@@ -81,13 +81,13 @@ interface PendingReply {
 }
 
 /**
- * The yuyi communication service, registered as `ctx.yuyi` (one instance per
- * process; mounted on the host plane). The service is dormant until hub and
- * token resolve; {@link YuyiRuntime.status} reports the resolution, and every
- * hub-reaching method throws {@link YuyiError} with a stable code otherwise.
+  * yuyi 通信服务，注册为 `ctx.yuyi`（每进程一个
+  * 实例；挂载在宿主平面）。hub 与
+  * token 解析前服务休眠；{@link YuyiRuntime.status} 报告解析结果，每个
+  * 触达 hub 的方法都以带稳定错误码的 {@link YuyiError} 失败。
  */
 export default class YuyiRuntime extends TypertRemoteService {
-  /** Plugin configuration schema; defaults live on the schema fields. */
+  /* * 插件配置 schema；默认值放在 schema 字段上。 */
   static Config: z<YuyiConfig> = z.object({
     hub: z.string(),
     tokenEnv: z.string().default('YUYI_TOKEN'),
@@ -95,7 +95,7 @@ export default class YuyiRuntime extends TypertRemoteService {
     replyTimeoutMs: z.number().default(DEFAULT_REPLY_TIMEOUT_MS),
   })
 
-  /** Required services: the agent registry delivery routing resolves against. */
+  /* * 所需服务：投递路由据此解析的 agent 注册表。 */
   static inject = ['agents']
 
   private settingsSource: () => YuyiConfig
@@ -107,24 +107,24 @@ export default class YuyiRuntime extends TypertRemoteService {
   private tokenFound = false
   private hubUnread: number | undefined
   private lastStatusJson: string | undefined
-  /** Set when the connection teardown ran; a queued reconnect must not raise a client after it. */
+  /* * 连接拆除时置位；其后排队的重连不得再拉起客户端。 */
   private disposed = false
-  /** Serializes connection cycles so a settings change racing a pending start cannot leak a client. */
+  /* * 串行化连接周期，使设置变更与挂起中的 start 竞态时不泄漏客户端。 */
   private connectionTail: Promise<void> = Promise.resolve()
   private resolvedDevice: string
 
   /**
-   * @param ctx - plugin context carrying the agent registry.
-   * @param config - validated plugin configuration; doubles as the composition
-   * `base` layer under the user-settings section this constructor registers.
+    * @param ctx - 携带 agent 注册表的插件上下文。
+    * @param config - 已校验的插件配置；兼任构造器所注册的
+    * 用户设置节之下的 `base` 层，由本构造器注册。
    */
   constructor(ctx: Context, config: YuyiConfig) {
     super(ctx, 'yuyi')
     this.settingsSource = () => config
     this.resolvedDevice = this.resolveDevice()
-    // The user-settings document owns the editable layer over the composition
-    // entry: every committed change — and a settings provider attaching or
-    // detaching — restarts the hub connection under the newly resolved values.
+    // 用户设置文档拥有组合条目之上的可编辑层：
+    // 条目之上：每次提交的变更——以及设置服务的挂载或
+    // 卸载——都会以新解析的值重启 hub 连接。
     installSettingsSection(ctx, SETTINGS_NAMESPACE, YuyiRuntime.Config, config, {
       setSource: (source) => { this.settingsSource = source },
       onChange: () => { void this.reconnect() },
@@ -137,8 +137,8 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * The recomputed connection snapshot.
-   * @returns the current status.
+    * 重算后的连接快照。
+    * @returns 当前状态。
    */
   @Remote('status')
   status(): YuyiStatus {
@@ -162,12 +162,12 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Register one session into the local roster and push it to the hub. Throws
-   * {@link YuyiError} `YUYI_DUPLICATE_ALIAS` when another session already
-   * holds the alias. The disposer unregisters the session.
-   * @param sessionId - the session to register.
-   * @param info - roster facts shown to peers and used for alias addressing.
-   * @returns the disposer that unregisters the session.
+    * 把一个会话注册进本地 roster 并推送到 hub。别的
+    * 若别的会话已持有该别名，抛
+    * 持有别名。清理函数注销会话。
+    * @param sessionId - 要注册的会话。
+    * @param info - 展示给 peer、并用于别名寻址的 roster 事实。
+    * @returns 注销会话的清理函数。
    */
   register(sessionId: SessionId, info: { readonly title: string; readonly directory: string; readonly name?: string }): () => void {
     const aliasKey = info.name?.toLowerCase()
@@ -194,25 +194,25 @@ export default class YuyiRuntime extends TypertRemoteService {
         this.emitStatus()
       }
     }, 'dsh-yuyi: roster registration')
-    // ctx.effect's disposer resolves when unloaded; the roster API is a
-    // synchronous fire-and-forget disposer, so discard the settled promise.
+    // ctx.effect 的清理函数在卸载时落定；roster API 是
+    // 同步即发即弃清理函数，因此丢弃已落定的 promise。
     return () => { void dispose() }
   }
 
   /**
-   * The alias a session registered under, if any.
-   * @param sessionId - the session to look up.
-   * @returns the alias, or undefined for an unregistered or anonymous session.
+    * 会话注册时使用的别名（如有）。
+    * @param sessionId - 要查的会话。
+    * @returns 别名；未注册或匿名会话为 undefined。
    */
   aliasOf(sessionId: SessionId): string | undefined {
     return this.roster.get(sessionId)?.name
   }
 
   /**
-   * Send one message through the hub and await its delivery ack.
-   * @param request - the message request; `from` fields fill from the roster.
-   * @returns the ack's delivery outcome.
-   * @throws {YuyiError} `YUYI_NOT_CONFIGURED`, `YUYI_NOT_CONNECTED`, or `YUYI_SEND_REJECTED`.
+    * 经 hub 发送一条消息并等待其投递 ack。
+    * @param request - 消息请求；`from` 字段由 roster 填充。
+    * @returns ack 的投递结果。
+    * @throws {YuyiError} `YUYI_NOT_CONFIGURED`、`YUYI_NOT_CONNECTED` 或 `YUYI_SEND_REJECTED`。
    */
   async send(request: YuyiSendRequest): Promise<YuyiSendResult> {
     const message = this.buildMessage(request)
@@ -227,20 +227,20 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Send one `expectReply` message and wait for the matching reply delivery.
-   * The wait ends at the first of: the reply arrives, `replyTimeoutMs` elapses
-   * (`YUYI_REPLY_TIMEOUT`), or `signal` aborts (`YUYI_REPLY_ABORTED`).
-   * @param request - the message request; `expectReply` is forced on.
-   * @param signal - optional cancellation signal for the wait.
-   * @returns the sent message and the correlated reply.
-   * @throws {YuyiError} the `send` failures, `YUYI_REPLY_TIMEOUT`, or `YUYI_REPLY_ABORTED`.
+    * 发送一条 `expectReply` 消息并等待匹配的回信投递。
+    * 等待在以下最先发生者处结束：回信到达、`replyTimeoutMs` 到期
+    * （`YUYI_REPLY_TIMEOUT`），或 `signal` 中止（`YUYI_REPLY_ABORTED`）。
+    * @param request - 消息请求；强制开启 `expectReply`。
+    * @param signal - 等待的可选中止信号。
+    * @returns 已发送消息与关联回信。
+    * @throws {YuyiError} `send` 的各失败、`YUYI_REPLY_TIMEOUT` 或 `YUYI_REPLY_ABORTED`。
    */
   async sendExpectingReply(request: YuyiSendRequest, signal?: AbortSignal): Promise<YuyiReplyResult> {
     const message = this.buildMessage({ ...request, expectReply: true })
     const timeoutMs = this.settingsSource().replyTimeoutMs
-    // The waiter registers BEFORE the send: a fast hub may deliver the reply
-    // immediately after the ack, and a waiter registered only after `dispatch`
-    // resolves would miss that delivery entirely.
+    // 等待者先于发送注册：快的 hub 可能在
+    // ack 之后立即送达，只在 `dispatch`
+    // 后才注册的等待者会彻底错过那次投递。
     const reply = await new Promise<YuyiMessage>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingReplies.delete(message.id)
@@ -279,10 +279,10 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Read one local inbox: a session's parked messages or the device inbox.
-   * @param target - the session whose inbox to read, or `'device'`.
-   * @param peek - true to leave messages in the inbox; false clears them.
-   * @returns the inbox entries, oldest first.
+    * 读一个本地收件箱：某会话的停靠消息或设备收件箱。
+    * @param target - 要读收件箱的会话，或 `'device'`。
+    * @param peek - true 保留收件箱消息；false 清除。
+    * @returns 收件箱条目，按最旧在前。
    */
   @Remote('inbox')
   inboxRead(target: SessionId | 'device', peek?: boolean): InboxEntry[] {
@@ -290,9 +290,9 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * List the devices and sessions currently reachable through the hub.
-   * @returns one entry per connected device with its roster sessions.
-   * @throws {YuyiError} `YUYI_NOT_CONFIGURED` or `YUYI_NOT_CONNECTED`.
+    * 列出当前经 hub 可达的设备与会话。
+    * @returns 每个已连接设备一条，含其 roster 会话。
+    * @throws {YuyiError} `YUYI_NOT_CONFIGURED` 或 `YUYI_NOT_CONNECTED`。
    */
   @Remote('peers')
   async peers(): Promise<PeerDevice[]> {
@@ -300,10 +300,10 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Drain the hub-side inbox for this connection's agent (at-least-once;
-   * entries stay until {@link YuyiRuntime.hubInboxAck} clears them).
-   * @returns every pending hub inbox entry.
-   * @throws {YuyiError} `YUYI_NOT_CONFIGURED` or `YUYI_NOT_CONNECTED`.
+    * 拉取本连接 agent 的 hub 侧收件箱（至少一次；
+    * 条目保留至 {@link YuyiRuntime.hubInboxAck} 清除）。
+    * @returns 全部挂起的 hub 收件箱条目。
+    * @throws {YuyiError} `YUYI_NOT_CONFIGURED` 或 `YUYI_NOT_CONNECTED`。
    */
   async hubInboxDrain(): Promise<InboxEntry[]> {
     const frame = await this.requireConnected().inboxDrain()
@@ -311,11 +311,11 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Fetch the hub-side participation index for one task (participants, round
-   * count, time window) formatted for display. Requires the hub `task` feature.
-   * @param taskId - the task to look up.
-   * @returns the formatted index, or undefined when the hub has no record.
-   * @throws {YuyiError} `YUYI_NOT_CONFIGURED` or `YUYI_NOT_CONNECTED`.
+    * 拉取一个任务的 hub 侧参与索引（参与者、轮数、
+    * 轮数、时间窗）格式化供展示。需要 hub `task` 特性。
+    * @param taskId - 要查的任务。
+    * @returns 格式化索引；hub 无记录时为 undefined。
+    * @throws {YuyiError} `YUYI_NOT_CONFIGURED` 或 `YUYI_NOT_CONNECTED`。
    */
   async taskIndex(taskId: string): Promise<string | undefined> {
     const task = await this.requireConnected().taskFetch(taskId)
@@ -323,9 +323,9 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Acknowledge hub inbox messages as consumed; the hub deletes them.
-   * @param ids - the message ids consumed.
-   * @throws {YuyiError} `YUYI_NOT_CONFIGURED`, `YUYI_NOT_CONNECTED`, or `YUYI_SEND_REJECTED` on a hub refusal.
+    * 确认已消费 hub 收件箱消息；hub 会删除它们。
+    * @param ids - 已消费的消息 id。
+    * @throws {YuyiError} `YUYI_NOT_CONFIGURED`、`YUYI_NOT_CONNECTED`，或 hub 拒收时的 `YUYI_SEND_REJECTED`。
    */
   async hubInboxAck(ids: string[]): Promise<void> {
     const ack = await this.requireConnected().inboxAck(ids)
@@ -349,7 +349,7 @@ export default class YuyiRuntime extends TypertRemoteService {
     return this.launchValue(tokenEnv) ?? yuyiEnv(tokenEnv)
   }
 
-  /** The device identity under the current settings source; hostname when nothing names one. */
+  /* * 当前设置源下的设备身份；无命名时为主机名。 */
   private resolveDevice(): string {
     return this.settingsSource().device
       ?? this.launchValue('YUYI_DEVICE')
@@ -358,12 +358,12 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
-   * Stop and start the hub connection under the currently resolved settings,
-   * serialized behind any in-flight cycle: a settings change landing while a
-   * start still awaits its token must stop that start's outcome, not race it.
-   * Expect-reply waiters outstanding on the old connection abort with
-   * `YUYI_REPLY_ABORTED`.
-   * @returns settlement after the replacement connection attempt finishes.
+    * 按当前解析出的设置停止并重启 hub 连接，
+    * 串行化在任何在途周期之后：设置变更落在
+    * 仍等待令牌的 start 时，必须叫停该 start 的结果而非与之竞态。
+    * 旧连接上未决的等回复等待者以
+    * `YUYI_REPLY_ABORTED`。
+    * @returns 替换连接尝试完成后的落定。
    */
   private reconnect(): Promise<void> {
     /* v8 ignore next -- the catch arm keeps one failed cycle from poisoning
@@ -385,8 +385,8 @@ export default class YuyiRuntime extends TypertRemoteService {
       this.ctx.logger.warn('yuyi: token resolution failed', error)
       return undefined
     })
-    // Token resolution can straddle the teardown; a disposed runtime leaves
-    // the connection down instead of raising a client nothing will stop.
+    // 令牌解析可能跨越拆除；已销毁的运行时让
+    // 连接保持断开，而非拉起无人停止的客户端。
     if (this.disposed) return
     this.hubUrl = hub
     this.tokenFound = token !== undefined && token.length > 0
@@ -406,8 +406,8 @@ export default class YuyiRuntime extends TypertRemoteService {
         this.hubUnread = count
         this.emitStatus()
       },
-      // HubClient logs exactly at state transitions; recompute and emit after
-      // each so listeners observe settled fields without polling.
+      // HubClient 恰在状态转移时打日志；每次之后重算并发出，
+      // 使监听器无需轮询即可观察落定字段。
       log: (message) => {
         this.ctx.logger.info(`yuyi: ${message}`)
         this.emitStatus()
@@ -503,10 +503,10 @@ export default class YuyiRuntime extends TypertRemoteService {
     Promise.resolve(this.routeDelivery(message))
 
   private routeDelivery(message: YuyiMessage): { ok: boolean; detail?: string; handlerSessionID?: string } {
-    // Reply correlation runs before routing: a reply that matches an
-    // expect-reply waiter is consumed by that waiter (it returns as the
-    // blocked caller's tool result), so routing it again would deliver the
-    // same text twice.
+    // 回信关联先于路由：命中
+    // 等回复等待者的回信被其消费（它作为
+    // 阻塞调用方的工具结果），再路由它会
+    // 同一段文本被投递两次。
     if (message.replyTo !== undefined) {
       const waiter = this.pendingReplies.get(message.replyTo)
       if (waiter !== undefined) {

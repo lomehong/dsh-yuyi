@@ -1,10 +1,10 @@
 /**
- * Model-facing yuyi tools (`yuyi_status`, `yuyi_register`, `yuyi_peers`,
- * `yuyi_send`, `yuyi_inbox`, and the twelve `yuyi_task_*` lifecycle tools)
- * over `ctx.yuyi`. This package owns the schemas, validation, prompt
- * guidance, and presentation; the connection seam owns reachability. A
- * registered tool stays visible while the seam is dormant and fails with the
- * seam's structured `YuyiError` codes at execution time.
+  * 模型可用的 yuyi 工具（`yuyi_status`、`yuyi_register`、`yuyi_peers`、
+  * `yuyi_send`、`yuyi_inbox` 与十二个 `yuyi_task_*` 生命周期工具）
+  * 构建在 `ctx.yuyi` 上。本包拥有 schema、校验、prompt
+  * 指引与展示；连接接缝拥有可达性。未配置时
+  * 已注册工具在接缝休眠期间保持可见，执行时以
+  * 接缝的结构化 `YuyiError` 错误码失败。
  * @module dsh-yuyi/tools
  */
 
@@ -21,16 +21,16 @@ export type { TaskContinueValue, TaskEventValue, TaskShowValue } from './tasks.t
 export { outcomeOf } from './task-record.ts'
 export type { LocalIdentity, TaskRecordOutcome } from './task-record.ts'
 
-/** Cordis plugin name used by loader diagnostics. */
+/* * loader 诊断使用的 cordis 插件名。 */
 export const name = 'tool-yuyi'
 
-/** Services required by the yuyi tool suite. */
+/* * yuyi 工具套件所需的服务。 */
 export const inject = ['tools', 'yuyi', 'systemPrompt']
 
 /**
- * Register the seventeen yuyi tools and the prompt guidance that keeps their
- * use in the catalog's contract.
- * @param ctx - plugin context carrying the tool registry, the yuyi service, and the system-prompt service.
+  * 注册十七个 yuyi 工具，以及让其在
+  * 目录契约中的使用保持指引。
+  * @param ctx - 携带工具注册表、yuyi 服务与系统提示服务的插件上下文。
  */
 export function apply(ctx: Context): void {
   applyMessagingTools(ctx)

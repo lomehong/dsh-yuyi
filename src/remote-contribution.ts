@@ -1,8 +1,8 @@
 /**
- * The yuyi Remote contribution this plugin's browser half mounts through
- * `ctx.remote.$mount`. Ported from the artifact the harness's typert generator
- * emitted for the same service; the wire namespace and schemas are unchanged,
- * so the Host's source-mode discovery answers these endpoints as-is.
+  * 本插件浏览器半经此挂载的 yuyi Remote 贡献
+  * `ctx.remote.$mount`。从 harness typert 生成器
+  * 为同一服务发出的产物；线路命名空间与 schema 不变，
+  * 因此宿主 source-mode 发现原样应答这些端点。
  */
 import { z } from 'zod'
 

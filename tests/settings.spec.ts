@@ -16,7 +16,7 @@ process.env.YUYI_TOKEN = 'settings-token-value'
 
 const NS = settingsNamespace('yuyi')
 
-/** Per-test teardown: plugin fibers and fixture hubs, disposed newest-first. */
+/* * 每测试清理：插件 fiber 与 fixture hub，按最新优先销毁。 */
 const teardowns: Array<() => Promise<void>> = []
 
 afterEach(async () => {
@@ -26,7 +26,7 @@ afterEach(async () => {
   }
 })
 
-/** A credentials provider whose resolution stays held until the test releases it. */
+/* * 解析被挂起直至测试放行的凭证提供者。 */
 class ManualCredentials extends CredentialProvider {
   private readonly gate: Promise<void>
   private readonly releaseGate: () => void
@@ -43,7 +43,7 @@ class ManualCredentials extends CredentialProvider {
     this.releaseGate = () => { release() }
   }
 
-  /** Let held resolutions through. */
+  /* * 放行被挂起的解析。 */
   release(): void {
     this.releaseGate()
   }
@@ -69,7 +69,7 @@ class ManualCredentials extends CredentialProvider {
 
 interface BootOptions {
   hub?: string
-  /** Hold token resolution from construction until `releaseToken` runs. */
+  /* * 从构造起挂起令牌解析，直至 `releaseToken` 执行。 */
   heldToken?: boolean
 }
 
@@ -108,7 +108,7 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
   return { ctx, service: ctx.yuyi, settingsFiber, stop, releaseToken: () => { credentials?.release() } }
 }
 
-/** Start a fixture hub registered for per-test teardown. */
+/* * 启动一个注册进每测试清理的 fixture hub。 */
 async function startHub(): Promise<FixtureHub> {
   const hub = await new FixtureHub().start()
   teardowns.push(async () => { await hub.stop() })
@@ -158,16 +158,16 @@ describe('yuyi settings namespace', () => {
 
   it('abandons in-flight and queued reconnects once the plugin unloads', async () => {
     const hub = await startHub()
-    // Token resolution is held from construction, so the runtime's initial
-    // reconnect awaits inside start() while the settings attach queues a
-    // second cycle behind it; unloading mid-resolution must leave both
-    // unable to raise a client.
+    // 令牌解析从构造起被挂起，因此运行时最初的
+    // 重连在 start() 内等待令牌，设置挂载把第二个
+    // 周期排在后面；解析中途卸载必须让两者都
+    // 无法拉起客户端。
     const { service, stop, releaseToken } = await boot({ hub: hub.url, heldToken: true })
     await stop()
     releaseToken()
     await new Promise((resolve) => { setTimeout(resolve, 50) })
-    // The resolution resumes into a disposed runtime: both cycles stop dead
-    // before resolving the hub or raising a client.
+    // 解析恢复进一个已销毁的运行时：两个周期都戛然而止，
+    // 既不解析 hub 也不拉起客户端。
     expect(service.status()).toMatchObject({ hub: '', configured: false, connected: false })
     expect(hub.helloFrames).toHaveLength(0)
   })

@@ -1,12 +1,12 @@
 /**
- * dsh-yuyi browser half: mounts the yuyi Remote contribution into the
- * gateway client (`ctx.remote.$mount` — the Host's source-mode discovery
- * answers the endpoints), mirrors the connection status by polling (the
- * harness's forwarded-event allowlist is compile-time, so an out-of-tree
- * plugin refreshes on an interval), and registers the two surfaces: the
- * "Yuyi" tab in the conversation view ring and the Yuyi connection section
- * in Settings. The section edits the host `yuyi` settings namespace through
- * the settings-scope service; committed writes land as live reconnects.
+  * dsh-yuyi 浏览器半：把 yuyi Remote 贡献挂进
+  * 网关客户端（`ctx.remote.$mount` —— 宿主 source-mode 发现
+  * 应答端点），并以轮询镜像连接状态（
+  * harness 的转发事件白名单是编译期的，因此外置
+  * 插件按间隔刷新），并注册两个面：
+  * 会话视图环里的"御驿"标签页与御驿连接设置区块
+  * 进设置面板。区块经
+  * settings-scope 服务；提交的写入即时落地为重连。
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import TYPERT_REMOTE from '../remote-contribution.ts'
@@ -41,26 +41,26 @@ export type { YuyiSettingsKey } from './settings/locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** Yuyi tab copy. */
+    /* * 御驿标签页文案。 */
     'yuyiTab': YuyiTabKey
-    /** Yuyi settings-section copy. */
+    /* * 御驿设置区块文案。 */
     'settings.yuyi': YuyiSettingsKey
   }
 }
 
-/** The mounted Remote namespace's calling face (types are erased in the bundle). */
+/* * 已挂载 Remote 命名空间的调用面（类型在 bundle 中擦除）。 */
 interface YuyiRemoteFace {
   status(): Promise<Result<YuyiStatus>>
   inbox(target: string, peek?: boolean): Promise<Result<InboxEntry[]>>
 }
 
-/** Required services: the slots, the dictionaries, the settings transport, and the typed Remote. */
+/* * 所需服务：插槽、字典、设置传输与类型化 Remote。 */
 export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
 /**
- * Client plugin body: mount the Remote contribution, register the
- * dictionaries, and register the tab and the settings section.
- * @param ctx - client root context.
+  * 客户端插件主体：挂载 Remote 贡献，注册
+  * 字典，并注册标签页与设置区块。
+  * @param ctx - 客户端根上下文。
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(async () => {
@@ -71,8 +71,8 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(TAB_NS, { zh: tabZh, en: tabEn }), 'dsh-yuyi: tab dictionaries')
   ctx.effect(() => ctx.locale.register(SECTION_NS, { zh: sectionZh, en: sectionEn }), 'dsh-yuyi: section dictionaries')
 
-  // The mounted namespace is runtime state; the compile-time face does not
-  // know it, so the call site narrows once, at the boundary.
+  // 已挂载命名空间是运行时状态；编译期类型面不
+  // 知道它，因此调用点在边界处收窄一次。
   const yuyi = (ctx.remote as unknown as { yuyi: YuyiRemoteFace }).yuyi
   const mirror = new YuyiStatusMirror(async () => unwrap(await yuyi.status()))
   ctx.effect(() => mirror.start(), 'dsh-yuyi: status mirror')

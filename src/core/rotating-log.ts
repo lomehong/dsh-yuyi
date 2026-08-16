@@ -5,8 +5,8 @@
  * 本模块提供 createRotatingLog：超过阈值时轮转（rename .log → .log.1，新建 .log）。
  *
  * 用法：
- *   const log = createRotatingLog("/path/to/file.log", "yuyi-codex-wake")
- *   log("something happened")
+  * const log = createRotatingLog("/path/to/file.log", "yuyi-codex-wake")
+  * log("something happened")
  *
  * 轮转策略：单文件 size 超 maxSizeBytes 时，当前文件 rename 为 .1（覆盖旧 .1），
  * 新建空文件继续写。只保留 1 个历史文件（.1），不做多代归档——适配器日志是排查

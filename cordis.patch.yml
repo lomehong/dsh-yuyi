@@ -1,9 +1,8 @@
-# dsh bundle layer: mount the yuyi communication seam on the host plane.
-# The package's dsh.client declaration serves the browser half (the Yuyi
-# tab and the Settings section) from this same row. The service stays
-# dormant until hub and token resolve (config below, the YUYI_HUB/YUYI_TOKEN
-# environment, or ~/.yuyi/env — the file the Yuyi installer writes). Model
-# tools ride agent presets instead of this layer: see presets/yuyi.cordis.yml.
+# dsh bundle 层：在宿主平面挂载御驿通信接缝。
+# 包的 dsh.client 声明使浏览器半（御驿标签页与设置区块）从同一行自动服务。
+# hub 与 token 未解析前服务保持休眠（下方 config、YUYI_HUB/YUYI_TOKEN
+# 环境变量，或 ~/.yuyi/env —— Yuyi 安装器写入的文件）。模型工具不走这一层，
+# 而是 agent preset：见 presets/yuyi.cordis.yml。
 - insert:
     - id: yuyi
       name: dsh-yuyi

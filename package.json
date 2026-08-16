@@ -1,7 +1,7 @@
 {
   "name": "dsh-yuyi",
   "version": "0.1.0",
-  "description": "Yuyi communication plugin for DeepSeek Harness: Hub connection seam with wake delivery, session roster, seventeen model-facing yuyi_* tools, task memory, and a web tab + settings section",
+  "description": "DeepSeek Harness 的御驿通信插件：带唤醒投递的 Hub 接缝、会话 roster、十七个 yuyi_* 模型工具、任务记忆与 Web 标签页/设置区块",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

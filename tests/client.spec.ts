@@ -1,5 +1,5 @@
-// Client plugin registration over stubbed services: the Remote contribution
-// mount, both dictionaries, both slots, and the polling status mirror.
+// 桩服务上的客户端插件注册：Remote 贡献
+// 挂载、双字典、双插槽与轮询状态镜像。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject, unwrap } from '../src/client/index.ts'
 import TYPERT_REMOTE from '../src/remote-contribution.ts'

@@ -5,10 +5,10 @@
  * 确定性拼接后签名；接收方调御符 /api/v1/auth/agent/verify-signature 验签。
  *
  * 签名数据（确定性拼接，防歧义）：
- *   data = text + "\x00" + (taskId ?? "") + "\x00" + String(time)
+  * data = text + "\x00" + (taskId ?? "") + "\x00" + String(time)
  *
  * 字段（YuyiMessage）：
- *   contentSignature — HMAC-SHA256 hex
+  * contentSignature —— HMAC-SHA256 十六进制
  *   signatureKeyId    — 御符 sign_key 表定位
  *
  *  Hub 只透传不校验；接收方验签。缺省 = 未签名（老 Agent 兼容）。

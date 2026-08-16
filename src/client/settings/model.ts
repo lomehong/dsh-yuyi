@@ -1,15 +1,15 @@
 /**
- * Pure projections over the yuyi settings section: field display strings,
- * draft validation, the write a draft maps to, and the user-override set
- * read off the raw settings user layer.
+  * yuyi 设置节上的纯投影：字段显示串、
+  * 草稿校验、草稿映射的写入与用户覆盖集合
+  * 从原始设置用户层读出。
  */
 import type { YuyiConnectionField, YuyiSettingsValue } from './settings-contract.ts'
 
 /**
- * The draft string one field's input shows.
- * @param value - resolved settings section; undefined before the first acceptance.
- * @param field - the field to display.
- * @returns the field's current value as input text, empty when unset or unresolved.
+  * 一个字段输入框显示的草稿串。
+  * @param value - 解析后的设置节；首次接受前为 undefined。
+  * @param field - 要显示的字段。
+  * @returns 字段当前值对应的输入文本，未设或未解析时为空。
  */
 export function fieldDraft(value: YuyiSettingsValue | undefined, field: YuyiConnectionField): string {
   const raw = value?.[field]
@@ -17,11 +17,11 @@ export function fieldDraft(value: YuyiSettingsValue | undefined, field: YuyiConn
 }
 
 /**
- * Whether a draft can be written. `tokenEnv` must stay non-empty; the timeout
- * must be a positive integer.
- * @param field - the field being edited.
- * @param draft - the input's current text.
- * @returns whether {@link draftWrite} would produce a write.
+  * 草稿是否可写。`tokenEnv` 必须非空；超时
+  * 必须是正整数。
+  * @param field - 正在编辑的字段。
+  * @param draft - 输入框当前文本。
+  * @returns {@link draftWrite} 是否会产生写入。
  */
 export function draftValid(field: YuyiConnectionField, draft: string): boolean {
   if (field === 'replyTimeoutMs') return /^\d+$/.test(draft.trim()) && Number(draft.trim()) > 0
@@ -29,18 +29,18 @@ export function draftValid(field: YuyiConnectionField, draft: string): boolean {
   return true
 }
 
-/** The write one valid draft maps to: a set, or the unset an emptied optional field re-inherits through. */
+/* * 一个有效草稿映射到的写入：set，或清空可选字段后重新继承所经的 unset。 */
 export type DraftWrite =
   | { readonly op: 'set'; readonly value: string | number }
   | { readonly op: 'unset' }
 
 /**
- * Map one valid draft to its settings write. Emptying `hub` or `device`
- * clears the override (the environment chain resumes); the timeout is
- * coerced to a number.
- * @param field - the field being committed.
- * @param draft - the input's text (validated by {@link draftValid}).
- * @returns the write the section routes into the scope.
+  * 把一个有效草稿映射为其设置写入。清空 `hub` 或 `device`
+  * 即清除覆盖（环境链接管）；超时
+  * 被强转为数字。
+  * @param field - 正在提交的字段。
+  * @param draft - 输入框文本（已经 {@link draftValid} 校验）。
+  * @returns 区块路由进作用域的写入。
  */
 export function draftWrite(field: YuyiConnectionField, draft: string): DraftWrite {
   if (field === 'replyTimeoutMs') return { op: 'set', value: Number(draft.trim()) }
@@ -49,9 +49,9 @@ export function draftWrite(field: YuyiConnectionField, draft: string): DraftWrit
 }
 
 /**
- * Read the user-override set off the raw settings user layer.
- * @param user - the snapshot's raw user layer (`unknown`: wire data).
- * @returns the fields present in the layer — presence, not value, marks an override.
+  * 从原始设置用户层读出用户覆盖集合。
+  * @param user - 快照的原始用户层（`unknown`：线路数据）。
+  * @returns 该层中存在的字段——存在性而非取值标记覆盖。
  */
 export function userOverrides(user: unknown): ReadonlySet<YuyiConnectionField> {
   if (typeof user !== 'object' || user === null) return new Set()

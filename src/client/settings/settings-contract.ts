@@ -1,36 +1,36 @@
 /**
- * Browser mirror of the `yuyi` host settings namespace (`dsh-yuyi`'s Config):
- * the connection fields this section edits. The host schema stays the
- * authority; this structural mirror exists because a browser bundle must not
- * reference the host capability package's program (only its type-only
- * `/types` seat, which carries no settings contract).
+  * 宿主 `yuyi` 设置命名空间（`dsh-yuyi` 的 Config）的浏览器镜像：
+  * 本区块编辑的连接字段。宿主 schema 仍为
+  * 为权威；这份结构镜像存在是因为浏览器 bundle 不得
+  * 引用宿主能力包的程序（只有其纯类型
+  * `/types` 座位，它不携带设置契约）。
  */
 
-/** Settings namespace the host `dsh-yuyi` plugin registers. */
+/* * 宿主 `dsh-yuyi` 插件注册的设置命名空间。 */
 export const YUYI_SETTINGS_NAMESPACE = 'yuyi'
 
-/** One connection field this section edits. */
+/* * 本区块编辑的一个连接字段。 */
 export type YuyiConnectionField = 'hub' | 'device' | 'tokenEnv' | 'replyTimeoutMs'
 
-/** Resolved `yuyi` settings section, as the wire schema admits it. */
+/* * 解析后的 `yuyi` 设置节，按线路 schema 所接纳的形态。 */
 export interface YuyiSettingsValue {
-  /** Hub WebSocket URL; absent falls through to the environment chain. */
+  /* * Hub WebSocket URL；缺省穿透到环境链。 */
   hub?: string
-  /** Device identity; absent falls back to the hostname. */
+  /* * 设备身份；缺省回落主机名。 */
   device?: string
-  /** Environment variable name the token resolves through. */
+  /* * 令牌解析所经的环境变量名。 */
   tokenEnv: string
-  /** Expect-reply wait budget in milliseconds. */
+  /* * 等回复的等待预算（毫秒）。 */
   replyTimeoutMs: number
 }
 
-/** One editable field's rendering kind. */
+/* * 一个可编辑字段的渲染种类。 */
 export interface YuyiFieldDescriptor {
   field: YuyiConnectionField
   kind: 'text' | 'number'
 }
 
-/** Every field the section renders, in display order. */
+/* * 区块渲染的全部字段，按显示顺序。 */
 export const CONNECTION_FIELDS: readonly YuyiFieldDescriptor[] = [
   { field: 'hub', kind: 'text' },
   { field: 'device', kind: 'text' },

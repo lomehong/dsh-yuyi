@@ -1,7 +1,7 @@
 /**
- * dsh-yuyi host plugin entry: re-exports the yuyi communication seam
- * (`ctx.yuyi`) so a profile row `name: dsh-yuyi` mounts the service. The
- * seventeen model-facing tools live under `./tools` for agent-preset rows.
+ * dsh-yuyi 宿主插件入口：再导出御驿通信接缝（`ctx.yuyi`），
+ * 供 profile 行 `name: dsh-yuyi` 挂载服务。十七个模型工具在 `./tools`
+ * 子路径下，供 agent preset 行引用。
  * @module dsh-yuyi
  */
 

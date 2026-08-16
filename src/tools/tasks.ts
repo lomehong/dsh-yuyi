@@ -1,7 +1,7 @@
 /**
- * The twelve task-memory tools (`yuyi_task_*`) over the vendored core's
- * durable `~/.yuyi/tasks/` records, with `yuyi_task_continue` routing through
- * the yuyi service for a blocking expect-reply round.
+  * 十二个任务记忆工具（`yuyi_task_*`），构建在钉住核心的
+  * 持久 `~/.yuyi/tasks/` 记录，`yuyi_task_continue` 经
+  * yuyi 服务做阻塞式等回复。
  * @module dsh-yuyi/tools/tasks
  */
 
@@ -20,14 +20,14 @@ import {
 } from '../core.ts'
 import { outcomeOf, recordTaskReply, recordTaskRequest, type LocalIdentity, type TaskRecordOutcome } from './task-record.ts'
 
-/** Canonical value shared by the task-event tools. */
+/* * 任务事件工具共享的规范值。 */
 export interface TaskEventValue {
   taskId: string
   event: string
   records: TaskRecordOutcome[]
 }
 
-/** Canonical value of `yuyi_task_show`: the bounded projection a caller programs against. */
+/* * `yuyi_task_show` 的规范值：调用方编程所依据的有界投影。 */
 export interface TaskShowValue {
   taskId: string
   round: number
@@ -47,7 +47,7 @@ export interface TaskShowValue {
   hubIndex?: string
 }
 
-/** Canonical value of `yuyi_task_continue`. */
+/* * `yuyi_task_continue` 的规范值。 */
 export interface TaskContinueValue {
   taskId: string
   to: string
@@ -57,7 +57,7 @@ export interface TaskContinueValue {
   records: TaskRecordOutcome[]
 }
 
-/** The object value schema every task-event tool shares. */
+/* * 所有任务事件工具共享的对象值 schema。 */
 const EVENT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -79,7 +79,7 @@ const EVENT_SCHEMA = {
   },
 } as const
 
-/** Resolve the calling agent, failing with the contract the tools promise. */
+/* * 解析调用方 agent，失败时给出工具承诺的契约。 */
 function agentOf(agent: Agent | undefined): Agent {
   if (agent === undefined) {
     throw new Error('yuyi_task_attach/continue require a session-scoped agent; call them from a live session')
@@ -87,7 +87,7 @@ function agentOf(agent: Agent | undefined): Agent {
   return agent
 }
 
-/** The local identity task records carry, from the service status. */
+/* * 任务记录携带的本地身份，来自服务状态。 */
 function identityOf(yuyi: YuyiRuntime): LocalIdentity {
   const status = yuyi.status()
   return {
@@ -97,13 +97,13 @@ function identityOf(yuyi: YuyiRuntime): LocalIdentity {
   }
 }
 
-/** The author label summary/close/verify events carry. */
+/* * summary/close/verify 事件携带的作者标签。 */
 function authorOf(yuyi: YuyiRuntime, agent: Agent | undefined): string {
   const alias = agent !== undefined ? yuyi.aliasOf(agent.id) : undefined
   return alias ?? yuyi.status().agentName ?? 'dsh'
 }
 
-/** The attach event for the calling session. */
+/* * 调用会话的 attach 事件。 */
 function attachEvent(yuyi: YuyiRuntime, agent: Agent, note?: string): TaskRecordInput {
   const alias = yuyi.aliasOf(agent.id)
   return {
@@ -115,7 +115,7 @@ function attachEvent(yuyi: YuyiRuntime, agent: Agent, note?: string): TaskRecord
   }
 }
 
-/** The address a continued round targets: explicit, the pending request's target, or the last replier. */
+/* * 续接轮次的目标地址：显式指定、挂起请求的目标，或最近回信者。 */
 function continueTarget(view: ReturnType<typeof taskView>, explicit: string | undefined): string {
   if (explicit !== undefined && explicit.length > 0) return explicit
   if (view === undefined) throw new Error('yuyi_task_continue: the task has no local record; send yuyi_send with task_id first')
@@ -128,7 +128,7 @@ function continueTarget(view: ReturnType<typeof taskView>, explicit: string | un
   throw new Error('yuyi_task_continue: no pending target and no earlier replier to address; pass "to" explicitly')
 }
 
-/** Register one single-task-id lifecycle tool whose core call returns an ok/reason result. */
+/* * 注册一个单任务 id 的生命周期工具，其核心调用返回 ok/reason 结果。 */
 function registerResultTool(ctx: Context, options: {
   name: string
   description: string
@@ -156,7 +156,7 @@ function registerResultTool(ctx: Context, options: {
   }))
 }
 
-/** Render one task-event tool outcome. */
+/* * 渲染一个任务事件工具的结果。 */
 function renderEvent(value: TaskEventValue): string {
   const failed = value.records.filter(record => !record.recorded)
   const suffix = failed.length > 0 ? ` (record rejected: ${failed.map(record => record.reason ?? 'unknown').join(', ')})` : ''
@@ -164,8 +164,8 @@ function renderEvent(value: TaskEventValue): string {
 }
 
 /**
- * Register the twelve task tools on the calling context's tool registry.
- * @param ctx - the plugin context (tool registry and yuyi service present).
+  * 在调用上下文的工具注册表上注册十二个任务工具。
+  * @param ctx - 插件上下文（工具注册表与 yuyi 服务在场）。
  */
 export function applyTaskTools(ctx: Context): void {
   const yuyi: YuyiRuntime = ctx.yuyi
@@ -391,7 +391,7 @@ export function applyTaskTools(ctx: Context): void {
       records.push(...recordTaskRequest(args.task_id, identityOf(yuyi), sent, args.message))
       const replyOutcome = recordTaskReply(args.task_id, reply)
       if (replyOutcome !== undefined) records.push(replyOutcome)
-      // The from fields cross the wire boundary as parsed JSON; identity facts can be absent.
+      // from 字段以解析后的 JSON 穿过线路边界；身份事实可能缺失。
       const replyFrom = reply.from as { name?: string; sessionID?: string; device: string }
       const replyIdentity = replyFrom.name ?? replyFrom.sessionID ?? 'unknown'
       return {

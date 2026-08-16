@@ -1,7 +1,7 @@
 /**
- * The five messaging tools (`yuyi_status`, `yuyi_register`, `yuyi_peers`,
- * `yuyi_send`, `yuyi_inbox`) over `ctx.yuyi`. Canonical values are the
- * structured facts; `output.render` carries the model-facing prose.
+  * 五个消息工具（`yuyi_status`、`yuyi_register`、`yuyi_peers`、
+  * `yuyi_send`、`yuyi_inbox`），构建在 `ctx.yuyi` 上。规范值是
+  * 结构化事实；`output.render` 承载模型侧文案。
  * @module dsh-yuyi/tools/messaging
  */
 
@@ -13,14 +13,14 @@ import type { InboxEntry, PeerDevice, YuyiStatus } from '../service.ts'
 import type YuyiRuntime from '../service.ts'
 import { recordTaskReply, recordTaskRequest, type TaskRecordOutcome } from './task-record.ts'
 
-/** One roster row as the model sees it in `yuyi_status`. */
+/* * `yuyi_status` 中模型视角的一行 roster。 */
 export interface StatusSessionRow {
   sessionId: string
   title: string
   name?: string
 }
 
-/** Canonical value of `yuyi_status`. */
+/* * `yuyi_status` 的规范值。 */
 export interface StatusValue {
   configured: boolean
   connected: boolean
@@ -34,12 +34,12 @@ export interface StatusValue {
   sessions: StatusSessionRow[]
 }
 
-/** Canonical value of `yuyi_peers`. */
+/* * `yuyi_peers` 的规范值。 */
 export interface PeersValue {
   devices: PeerDevice[]
 }
 
-/** One inbox row as the model sees it. */
+/* * 模型视角的一行收件箱。 */
 export interface InboxRow {
   id: string
   from: string
@@ -49,13 +49,13 @@ export interface InboxRow {
   receivedAt: number
 }
 
-/** Canonical value of `yuyi_inbox`. */
+/* * `yuyi_inbox` 的规范值。 */
 export interface InboxValue {
   target: 'session' | 'device' | 'hub'
   entries: InboxRow[]
 }
 
-/** Canonical value of `yuyi_send`. */
+/* * `yuyi_send` 的规范值。 */
 export interface SendValue {
   messageId: string
   deliveredAs?: 'notify' | 'mail_fallback'
@@ -65,7 +65,7 @@ export interface SendValue {
   taskRecords?: TaskRecordOutcome[]
 }
 
-/** Resolve the calling agent's session id, or fail with the contract the tools promise. */
+/* * 解析调用方 agent 的会话 id，否则以工具承诺的契约失败。 */
 function sessionOf(agent: Agent | undefined, tool: string): SessionId {
   if (agent === undefined) {
     throw new Error(`${tool} requires a session-scoped agent; call it from a live session`)
@@ -74,9 +74,9 @@ function sessionOf(agent: Agent | undefined, tool: string): SessionId {
 }
 
 /**
- * Render the status snapshot as compact prose.
- * @param value - the status snapshot.
- * @returns the rendered text.
+  * 把状态快照渲染为紧凑散文。
+  * @param value - 状态快照。
+  * @returns 渲染出的文本。
  */
 export function renderStatus(value: StatusValue): string {
   const identity = [`device ${value.device}`]
@@ -96,9 +96,9 @@ export function renderStatus(value: StatusValue): string {
 }
 
 /**
- * Render one peer listing.
- * @param value - the devices and sessions.
- * @returns the rendered text.
+  * 渲染一份 peer 列表。
+  * @param value - 设备与会话。
+  * @returns 渲染出的文本。
  */
 export function renderPeers(value: PeersValue): string {
   if (value.devices.length === 0) return 'no devices are reachable through the hub'
@@ -113,9 +113,9 @@ export function renderPeers(value: PeersValue): string {
 }
 
 /**
- * Render one inbox read.
- * @param value - the inbox target and entries.
- * @returns the rendered text.
+  * 渲染一次收件箱读取。
+  * @param value - 收件箱目标与条目。
+  * @returns 渲染出的文本。
  */
 export function renderInbox(value: InboxValue): string {
   if (value.entries.length === 0) return `${value.target} inbox is empty`
@@ -123,7 +123,7 @@ export function renderInbox(value: InboxValue): string {
   return blocks.join('\n---\n')
 }
 
-/** Map one inbox entry to its canonical row. */
+/* * 把一个收件箱条目映射为其规范行。 */
 function inboxRow(entry: InboxEntry): InboxRow {
   const from = entry.message.from
   const identity = from.name ?? from.sessionID
@@ -137,15 +137,15 @@ function inboxRow(entry: InboxEntry): InboxRow {
   }
 }
 
-/** The label a peer's identity renders as; `unknown` for a wire message carrying no identity. */
+/* * peer 身份渲染出的标签；不带身份的线路消息为 `unknown`。 */
 function peerLabel(from: { name?: string; sessionID?: string; device: string }): string {
   const identity = from.name ?? from.sessionID ?? 'unknown'
   return from.device.length > 0 ? `${identity}@${from.device}` : identity
 }
 
 /**
- * Register the five messaging tools on the calling context's tool registry.
- * @param ctx - the plugin context (tool registry and yuyi service present).
+  * 在调用上下文的工具注册表上注册五个消息工具。
+  * @param ctx - 插件上下文（工具注册表与 yuyi 服务在场）。
  */
 export function applyMessagingTools(ctx: Context): void {
   const yuyi: YuyiRuntime = ctx.yuyi
@@ -414,7 +414,7 @@ export function applyMessagingTools(ctx: Context): void {
           replyFrom: peerLabel(reply.from),
         }
         if (args.task_id !== undefined) {
-          // The request event creates the record; the reply event follows it.
+          // 请求事件创建记录；回信事件随后而至。
           const outcomes = recordTaskRequest(args.task_id, identity, sent, args.text)
           const replyOutcome = recordTaskReply(args.task_id, reply)
           if (replyOutcome !== undefined) outcomes.push(replyOutcome)

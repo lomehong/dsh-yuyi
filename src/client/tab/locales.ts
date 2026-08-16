@@ -1,9 +1,9 @@
-/** `yuyiTab` namespace dictionaries. */
+/* * `yuyiTab` 命名空间字典。 */
 
-/** Dictionary namespace owned by this plugin. */
+/* * 本插件拥有的字典命名空间。 */
 export const NS = 'yuyiTab'
 
-/** Simplified Chinese dictionary (the key-set source of truth). */
+/* * 简体中文字典（键集权威来源）。 */
 export const zh = {
   'tab.label': '御驿',
   'state.connected': '已连接',
@@ -24,10 +24,10 @@ export const zh = {
   'error.title': '读取失败',
 } as const
 
-/** Dictionary key union derived from the Chinese source of truth. */
+/* * 由中文权威字典派生的文案键联合。 */
 export type YuyiTabKey = keyof typeof zh
 
-/** English dictionary, key-identical to the Chinese source of truth. */
+/* * 英文字典，键集与中文权威字典一致。 */
 export const en: Record<YuyiTabKey, string> = {
   'tab.label': 'Yuyi',
   'state.connected': 'connected',

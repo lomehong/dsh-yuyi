@@ -81,7 +81,7 @@ export interface YuyiMessage {
     /** "*" 广播 / 会话名 / sessionID */
     target: string
   }
-  /** epoch ms */
+  /* * epoch 毫秒 */
   time: number
 
   // ---- 以下为 A2A / EACP 对齐字段（顶层附录 B）。

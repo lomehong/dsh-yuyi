@@ -18,7 +18,7 @@ import { fakeHome, LAUNCH_TOKEN } from './env.ts'
 
 process.env.YUYI_TOKEN = LAUNCH_TOKEN
 
-/** Per-test teardown: plugin fibers and fixture hubs, disposed newest-first. */
+/* * 每测试清理：插件 fiber 与 fixture hub，按最新优先销毁。 */
 const teardowns: Array<() => Promise<void>> = []
 
 afterEach(async () => {
@@ -28,7 +28,7 @@ afterEach(async () => {
   }
 })
 
-/** A minimal agent registered into ctx.agents, recording delivery calls. */
+/* * 注册进 ctx.agents 的最小 agent，记录投递调用。 */
 interface FakeAgent {
   followup: ReturnType<typeof vi.fn>
   steer: ReturnType<typeof vi.fn>
@@ -51,7 +51,7 @@ function fakeAgent(ctx: Context, sessionId: string, status: 'idle' | 'running'):
   return { followup, steer }
 }
 
-/** A credentials provider resolving one fixed token value, or failing on demand. */
+/* * 解析固定令牌值、或按需失败的凭证提供者。 */
 class StubCredentials extends CredentialProvider {
   constructor(
     ctx: CordisContext,
@@ -83,9 +83,9 @@ class StubCredentials extends CredentialProvider {
 interface SetupOptions {
   hub?: string
   credentials?: { value: string } | { fail: true }
-  /** Omit the explicit device so resolution walks the environment chain. */
+  /* * 省略显式 device，让解析走过环境链。 */
   deviceless?: boolean
-  /** tokenEnv pointing at nothing, for dormant cases. */
+  /* * tokenEnv 指向空位，用于休眠场景。 */
   absentToken?: boolean
 }
 
@@ -113,14 +113,14 @@ async function setup(options: SetupOptions = {}): Promise<{ ctx: Context; servic
   return { ctx, service: ctx.yuyi, stop }
 }
 
-/** Start a fixture hub registered for per-test teardown. */
+/* * 启动一个注册进每测试清理的 fixture hub。 */
 async function startHub(): Promise<FixtureHub> {
   const hub = await new FixtureHub().start()
   teardowns.push(async () => { await hub.stop() })
   return hub
 }
 
-/** A delivery-shaped message from a remote device. */
+/* * 一条来自远端设备的投递形态消息。 */
 function remoteMessage(overrides: Partial<YuyiMessage> = {}): YuyiMessage {
   return {
     id: 'msg_remote_1',
@@ -146,8 +146,8 @@ describe('yuyi service', () => {
   })
 
   it('stays dormant when hub or token do not resolve', async () => {
-    // A mounted credentials seam that misses the reference falls through to
-    // the launch environment and the env file rather than failing the boot.
+    // 已挂载的凭证接缝未命中引用时，穿透到
+    // 启动环境与 env 文件，而不是启动失败。
     const { service } = await setup({ absentToken: true, credentials: { value: 'other-token' } })
     await vi.waitFor(() => { expect(service.status().hub).toBe('') })
     const status = service.status()
@@ -200,21 +200,21 @@ describe('yuyi service', () => {
 
   it('resolves the token through the credentials seam, then launch env, then env file', async () => {
     const hub = await startHub()
-    // Credentials seam wins while mounted.
+    // 凭证接缝挂载期间优先。
     delete process.env.YUYI_TOKEN
     const seam = await setup({ hub: hub.url, credentials: { value: 'seam-token' } })
     await vi.waitFor(() => { expect(seam.service.status().connected).toBe(true) })
     expect(hub.helloFrames.at(-1)?.token).toBe('seam-token')
     await seam.stop()
 
-    // Launch environment resolves without the seam.
+    // 启动环境在无接缝时解析。
     process.env.YUYI_TOKEN = LAUNCH_TOKEN
     const launch = await setup({ hub: hub.url })
     await vi.waitFor(() => { expect(launch.service.status().connected).toBe(true) })
     expect(hub.helloFrames.at(-1)?.token).toBe(LAUNCH_TOKEN)
     await launch.stop()
 
-    // The yuyi env file is the last fallback.
+    // yuyi 环境文件是最后的兜底。
     delete process.env.YUYI_TOKEN
     mkdirSync(join(fakeHome, '.yuyi'), { recursive: true })
     writeFileSync(join(fakeHome, '.yuyi', 'env'), 'YUYI_TOKEN=file-token-value\n')
@@ -387,8 +387,8 @@ describe('expect-reply correlation', () => {
     const exchange = await pending
     expect(exchange.sent.id).toBe(sentId)
     expect(exchange.reply.id).toBe('msg_reply_1')
-    // The waiter consumed the reply; nothing lands in the device inbox even
-    // though no roster session named worker-a exists here.
+    // 等待者消费了回信；即便此处没有名为 worker-a 的
+    // roster 会话，设备收件箱也一无所获。
     expect(await deliver).toMatchObject({ ok: true, detail: 'consumed by expect-reply waiter' })
     expect(service.inboxRead('device', true)).toHaveLength(0)
   })
