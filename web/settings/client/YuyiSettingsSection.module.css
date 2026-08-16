@@ -1,0 +1,121 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.statusCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 8px;
+}
+
+.statusHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.badge[data-state='disconnected'],
+.badge[data-state='loading'] {
+  opacity: 0.8;
+}
+
+.badge[data-state='unconfigured'] {
+  opacity: 0.6;
+}
+
+.statusFacts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.statusFacts div {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.statusFacts dt {
+  min-width: 72px;
+  opacity: 0.7;
+}
+
+.statusFacts dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.lastError dd {
+  color: #d97706;
+}
+
+.note {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 180px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.fieldLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.overridden {
+  font-size: 11px;
+  opacity: 0.7;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.action {
+  font-size: 12px;
+  white-space: nowrap;
+}

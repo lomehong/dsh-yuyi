@@ -1,0 +1,7 @@
+# Example agent-preset rows mounting the seventeen yuyi_* model tools.
+# Copy these rows into your own preset (or the standard preset's
+# agent.cordis.yml) so sessions composed from it can talk through the hub.
+# The host must also mount the service itself — `dsh plugin add dsh-yuyi`
+# inserts the host row from cordis.patch.yml automatically.
+- id: tool-yuyi
+  name: dsh-yuyi/tools

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2024", "dom"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "rootDir": ".",
+    "outDir": "lib"
+  },
+  "include": ["index.ts", "tools.ts", "src"]
+}

@@ -1,0 +1,11 @@
+allowBuilds:
+  esbuild: set this to true or false
+verifyDepsBeforeRun: false
+overrides:
+  # @deepseek-ai/dsh-session peers on dsh-type-meta, which upstream has not
+  # published; the alias parks the slot on a published type-only package so
+  # resolution succeeds. Nothing in dsh-yuyi imports it.
+  '@deepseek-ai/dsh-type-meta': npm:@deepseek-ai/dsh-brand@0.0.1-rc.1
+
+onlyBuiltDependencies:
+  - esbuild
