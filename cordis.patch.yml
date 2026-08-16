@@ -1,8 +1,9 @@
 # dsh bundle layer: mount the yuyi communication seam on the host plane.
-# The service stays dormant until hub and token resolve (config below, the
-# YUYI_HUB/YUYI_TOKEN environment, or ~/.yuyi/env — the file the Yuyi
-# installer writes). Model tools ride agent presets instead of this layer:
-# see presets/yuyi.cordis.yml.
+# The package's dsh.client declaration serves the browser half (the Yuyi
+# tab and the Settings section) from this same row. The service stays
+# dormant until hub and token resolve (config below, the YUYI_HUB/YUYI_TOKEN
+# environment, or ~/.yuyi/env — the file the Yuyi installer writes). Model
+# tools ride agent presets instead of this layer: see presets/yuyi.cordis.yml.
 - insert:
     - id: yuyi
       name: dsh-yuyi

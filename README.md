@@ -9,6 +9,7 @@ Yuyi (御驿) communication plugin for [DeepSeek Harness](https://github.com/dee
 | Piece | Entry | Where it mounts |
 |---|---|---|
 | Connection seam (`ctx.yuyi`) | `dsh-yuyi` (default export) | Host plane, via this bundle's `cordis.patch.yml` |
+| Web tab + Settings section | `dsh-yuyi/client` (browser half) | Served from the same row through the package's `dsh.client` declaration |
 | `yuyi_status` / `yuyi_register` / `yuyi_peers` / `yuyi_send` / `yuyi_inbox` + twelve `yuyi_task_*` tools | `dsh-yuyi/tools` | Agent presets — add the row from [`presets/yuyi.cordis.yml`](presets/yuyi.cordis.yml) |
 
 Delivery follows the harness wake pattern: a notify whose roster session has a live idle agent submits a follow-up turn (waking it); a running agent receives steering. `mail`, unwakeable deliveries, and foreign broadcasts park in local inboxes; own-device broadcast echoes are dropped. `yuyi_send` supports `expectReply` with a timeout and abort.
@@ -36,7 +37,7 @@ The bundle layer mounts the dormant service. Then give sessions the tools by add
 - `src/service.ts` — `YuyiRuntime`, the host-plane seam.
 - `src/tools/` — the tool suite and its prompt guidance.
 - `tests/` — service and tool suites over an in-process protocol-v2 fixture hub.
-- `web/` — browser halves (conversation tab, Settings section) parked as source: they need the harness's compile-time Remote client mounting and activate only once the harness grows an out-of-tree browser Remote face.
+- `src/client/` — the browser half: it mounts the yuyi Remote contribution through the public `ctx.remote.$mount` (the Host's source-mode discovery answers the endpoints), registers the conversation tab and the Settings section, and refreshes the connection status by a visibility-gated poll — the harness forwards Host events only through its own compile-time allowlist, so an out-of-tree plugin polls instead.
 
 ## Provenance
 

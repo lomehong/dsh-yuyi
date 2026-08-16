@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { YuyiStatus } from '../../src/types.ts'
+import type { YuyiStatus } from '../../types.ts'
 import { NS, type YuyiTabKey } from './locales.ts'
 import type { YuyiInboxRow, YuyiTabModel } from './model.ts'
 import { connectionState, inboxRows } from './model.ts'

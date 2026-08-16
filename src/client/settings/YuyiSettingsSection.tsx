@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { CONNECTION_FIELDS, type YuyiConnectionField, type YuyiSettingsValue } from './settings-contract.ts'
-import type { YuyiStatusState } from './status-mirror.ts'
+import type { YuyiStatusState } from '../status-mirror.ts'
 import { fieldLabelKey } from './locales.ts'
 import { draftValid, draftWrite, fieldDraft, userOverrides } from './model.ts'
 import css from './YuyiSettingsSection.module.css'

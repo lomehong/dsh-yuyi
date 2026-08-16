@@ -9,6 +9,7 @@
 | 组件 | 入口 | 挂载位置 |
 |---|---|---|
 | 连接接缝（`ctx.yuyi`） | `dsh-yuyi`（默认导出） | 宿主平面，经本 bundle 的 `cordis.patch.yml` |
+| Web 标签页 + 设置区块 | `dsh-yuyi/client`（浏览器半） | 同一行经包的 `dsh.client` 声明自动服务 |
 | `yuyi_status` / `yuyi_register` / `yuyi_peers` / `yuyi_send` / `yuyi_inbox` + 十二个 `yuyi_task_*` 工具 | `dsh-yuyi/tools` | agent preset——加 [`presets/yuyi.cordis.yml`](presets/yuyi.cordis.yml) 里的行 |
 
 投递遵循 harness 的唤醒模式：notify 命中 roster 中空闲的活跃会话即提交 follow-up 回合（唤醒它）；运行中的会话收到 steer。`mail`、无法唤醒的投递与外来广播停入本地收件箱；本设备广播回显被丢弃。`yuyi_send` 支持 `expectReply`（超时 + 中止）。
@@ -36,7 +37,7 @@ bundle 层挂载休眠的服务。再把 preset 行加进你的 preset，让会�
 - `src/service.ts` —— `YuyiRuntime`，宿主平面接缝。
 - `src/tools/` —— 工具套件及其 prompt 指引。
 - `tests/` —— 基于进程内协议 v2 fixture hub 的服务与工具套件。
-- `web/` —— 浏览器两侧（会话标签页、设置区块）以源码停放：需要 harness 的编译期 Remote 客户端挂载，待 harness 提供外置浏览器 Remote 面后激活。
+- `src/client/` —— 浏览器半：经公开的 `ctx.remote.$mount` 挂载御驿 Remote 贡献（宿主 source-mode 发现自动应答端点），注册会话标签页与设置区块；连接状态以可见性门控的轮询刷新——harness 只经自身编译期白名单转发宿主事件，外置插件因此用轮询。
 
 ## 出处
 

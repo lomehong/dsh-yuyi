@@ -1,7 +1,7 @@
 {
   "name": "dsh-yuyi",
   "version": "0.1.0",
-  "description": "Yuyi (御驿) communication plugin for DeepSeek Harness: Hub connection seam with wake delivery, session roster, seventeen model-facing yuyi_* tools, and task memory",
+  "description": "Yuyi communication plugin for DeepSeek Harness: Hub connection seam with wake delivery, session roster, seventeen model-facing yuyi_* tools, task memory, and a web tab + settings section",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -14,6 +14,10 @@
       "types": "./lib/types/tools.d.ts",
       "default": "./lib/tools.js"
     },
+    "./client": {
+      "types": "./lib/client.d.ts",
+      "default": "./lib/client.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -24,13 +28,25 @@
     "src/**"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm run build:client",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
+    "build:client": "tsdown -c tsdown.client.ts"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
     }
   },
   "dependencies": {
@@ -51,7 +67,6 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/schemastery": "^3.18.1",
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-launch-environment": "^0.1.0-rc.6",
@@ -62,8 +77,12 @@
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1",
     "@types/node": "^22.10.0",
+    "@types/react": "^18.0.0",
     "@types/ws": "^8.5.10",
+    "react": "^18.2.0",
+    "tsdown": "^0.12.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^4.1.8",
