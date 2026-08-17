@@ -17,15 +17,15 @@ export function fieldDraft(value: YuyiSettingsValue | undefined, field: YuyiConn
 }
 
 /**
-  * 草稿是否可写。`tokenEnv` 必须非空；超时
-  * 必须是正整数。
+  * 草稿是否可写。`tokenEnv` 必须是合法的环境变量名（POSIX 标识符）——令牌值
+  * 不属于这里，误粘令牌会被拦下；超时必须是正整数。
   * @param field - 正在编辑的字段。
   * @param draft - 输入框当前文本。
   * @returns {@link draftWrite} 是否会产生写入。
  */
 export function draftValid(field: YuyiConnectionField, draft: string): boolean {
   if (field === 'replyTimeoutMs') return /^\d+$/.test(draft.trim()) && Number(draft.trim()) > 0
-  if (field === 'tokenEnv') return draft.trim().length > 0
+  if (field === 'tokenEnv') return /^[A-Za-z_][A-Za-z0-9_]*$/.test(draft.trim())
   return true
 }
 

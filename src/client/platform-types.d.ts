@@ -18,6 +18,8 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
     set(field: string, value: unknown): Promise<void>
     unset(field: string): Promise<void>
   }
+  /* * 线路结果信封（Remote 与 api 域共用）。 */
+  export type WireResult<T> = { ok: true; value: T } | { ok: false; error: { message?: string } }
   /* * 本插件使用的浏览器根上下文。 */
   export interface ClientContext {
     effect(register: () => unknown, name?: string): () => void
@@ -27,7 +29,17 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
     }
     remote: {
       $mount(contribution: unknown): Promise<() => void>
+      $on(event: string, listener: (...args: never[]) => void): () => void
       [namespace: string]: unknown
+    }
+    connection: {
+      api: {
+        credentials: {
+          describe(args: { refs: string[] }): Promise<{ result: WireResult<{ credentials: Record<string, { configured: boolean; writable: boolean } | undefined> }> }>
+          set(args: { ref: string; value: string }): Promise<{ result: WireResult<unknown> }>
+          unset(args: { ref: string }): Promise<{ result: WireResult<unknown> }>
+        }
+      }
     }
     settingsScope: {
       bind<T>(spec: { namespace: string }): SettingsScope<T>
@@ -37,6 +49,15 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
       register(options: { name: string } & Record<string, unknown>, component: unknown): () => void
     }
   }
+}
+
+declare module '@deepseek-ai/dsh-client-ui-primitives' {
+  import type { ButtonHTMLAttributes, JSX, ReactNode } from 'react'
+  /* * 四态状态点（产品原语：halo + solid core，颜色全走 --dsw-* 令牌）。 */
+  export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error'
+  export function StateDot(props: { state: StateDotState; size?: number; className?: string }): JSX.Element
+  /* * 小圆角胶囊标签（产品原语）。 */
+  export function Pill(props: { active?: boolean; className?: string; children?: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

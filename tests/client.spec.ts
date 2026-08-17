@@ -22,6 +22,7 @@ interface Stubbed {
   namespaces: string[]
   scope: { set: ReturnType<typeof vi.fn>; unset: ReturnType<typeof vi.fn> }
   statusReads: { count: number }
+  credentialCalls: Array<{ op: 'set' | 'unset'; ref: string; value?: string }>
 }
 
 function stubbed(): Stubbed {
@@ -29,7 +30,15 @@ function stubbed(): Stubbed {
   const slots: Array<{ name: string; options: Record<string, unknown> }> = []
   const namespaces: string[] = []
   const statusReads = { count: 0 }
+  const credentialCalls: Array<{ op: 'set' | 'unset'; ref: string; value?: string }> = []
   const scope = { set: vi.fn(), unset: vi.fn(), getSnapshot: () => ({}), subscribe: () => () => {} }
+  const yuyiFace = {
+    status: () => {
+      statusReads.count += 1
+      return Promise.resolve({ ok: true, value: STUB_STATUS })
+    },
+    inbox: () => Promise.resolve({ ok: true, value: [] }),
+  }
   const ctx = {
     effect: (fn: () => unknown) => {
       const dispose = fn()
@@ -44,17 +53,34 @@ function stubbed(): Stubbed {
       },
       bind: (ns: string) => (key: string) => `${ns}:${String(key)}`,
     },
+    // cordis 的嵌套服务属性访问要求 inject 声明；本插件用豁免口 ctx.get
+    // 惰性读取自己 $mount 出来的命名空间。
+    get: (name: string) => (name === 'remote.yuyi' ? yuyiFace : undefined),
     remote: {
       $mount: async (contribution: unknown) => {
         mounted.push(contribution)
         return () => {}
       },
-      yuyi: {
-        status: () => {
-          statusReads.count += 1
-          return Promise.resolve({ ok: true, value: STUB_STATUS })
+      $on: (_event: string, _listener: unknown) => () => {},
+    },
+    connection: {
+      api: {
+        credentials: {
+          describe: async ({ refs }: { refs: string[] }) => ({
+            result: {
+              ok: true,
+              value: { credentials: Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])) },
+            },
+          }),
+          set: async ({ ref, value }: { ref: string; value: string }) => {
+            credentialCalls.push({ op: 'set', ref, value })
+            return { result: { ok: true, value: {} } }
+          },
+          unset: async ({ ref }: { ref: string }) => {
+            credentialCalls.push({ op: 'unset', ref })
+            return { result: { ok: true, value: {} } }
+          },
         },
-        inbox: () => Promise.resolve({ ok: true, value: [] }),
       },
     },
     settingsScope: {
@@ -71,7 +97,7 @@ function stubbed(): Stubbed {
       },
     },
   }
-  return { ctx, mounted, slots, namespaces, scope, statusReads }
+  return { ctx, mounted, slots, namespaces, scope, statusReads, credentialCalls }
 }
 
 afterEach(() => {
@@ -132,5 +158,21 @@ describe('dsh-yuyi browser half', () => {
     await expect(injected.readStatus()).resolves.toEqual(STUB_STATUS)
     await expect(injected.readInbox('device', true)).resolves.toEqual([])
     expect(statusReads.count).toBeGreaterThanOrEqual(1)
+  })
+
+  it('writes the adapter token through the credentials store under the configured ref', async () => {
+    const { ctx, slots, credentialCalls } = stubbed()
+    apply(ctx as never)
+    const section = slots[1]?.options as {
+      inject: () => { token: { read(): Promise<{ configured: boolean }>; save(v: string): Promise<void>; clear(): Promise<void> } }
+    }
+    const injected = section.inject()
+    await expect(injected.token.read()).resolves.toMatchObject({ configured: true, writable: true })
+    await injected.token.save('dsh-token-value')
+    await injected.token.clear()
+    expect(credentialCalls).toEqual([
+      { op: 'set', ref: 'YUYI_TOKEN', value: 'dsh-token-value' },
+      { op: 'unset', ref: 'YUYI_TOKEN' },
+    ])
   })
 })

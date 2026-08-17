@@ -18,7 +18,7 @@ import { inboxRows } from './tab/model.ts'
 import { en as tabEn, NS as TAB_NS, zh as tabZh, type YuyiTabKey } from './tab/locales.ts'
 import { YuyiSettingsSection, type YuyiSettingsSectionInjected } from './settings/YuyiSettingsSection.tsx'
 import { en as sectionEn, NS as SECTION_NS, zh as sectionZh, type YuyiSettingsKey } from './settings/locales.ts'
-import { YUYI_SETTINGS_NAMESPACE, type YuyiSettingsValue } from './settings/settings-contract.ts'
+import { YUYI_SETTINGS_NAMESPACE, type YuyiSettingsValue, type YuyiTokenStore } from './settings/settings-contract.ts'
 
 export { YuyiStatusMirror, unwrap } from './status-mirror.ts'
 export type { Result, YuyiStatusState } from './status-mirror.ts'
@@ -33,6 +33,7 @@ export type { DraftWrite } from './settings/model.ts'
 export {
   CONNECTION_FIELDS, YUYI_SETTINGS_NAMESPACE,
   type YuyiConnectionField, type YuyiFieldDescriptor, type YuyiSettingsValue,
+  type YuyiTokenState, type YuyiTokenStore,
 } from './settings/settings-contract.ts'
 export { en as tabEn, zh as tabZh } from './tab/locales.ts'
 export type { YuyiTabKey } from './tab/locales.ts'
@@ -71,10 +72,19 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(TAB_NS, { zh: tabZh, en: tabEn }), 'dsh-yuyi: tab dictionaries')
   ctx.effect(() => ctx.locale.register(SECTION_NS, { zh: sectionZh, en: sectionEn }), 'dsh-yuyi: section dictionaries')
 
-  // 已挂载命名空间是运行时状态；编译期类型面不
-  // 知道它，因此调用点在边界处收窄一次。
-  const yuyi = (ctx.remote as unknown as { yuyi: YuyiRemoteFace }).yuyi
-  const mirror = new YuyiStatusMirror(async () => unwrap(await yuyi.status()))
+  // 已挂载命名空间是运行时状态：上面的 $mount 异步落定后 `remote.yuyi`
+  // 服务才存在，因此每个调用点都惰性解析，而不是在 apply 时捕获一次
+  // （apply 时刻捕获会永远拿到 undefined —— cordis 的属性访问是活解析，
+  // 但捕获的是当时的解析结果值）。且不能用 `(ctx.remote).yuyi` 属性路径：
+  // cordis 对嵌套服务的属性访问强制 inject 声明（"cannot get property
+  // "remote.yuyi" without inject"），而该服务由本插件自己的 $mount 提供，
+  // 提前 inject 会死锁——`ctx.get` 是官方豁免注入声明的可选服务读取口。
+  const yuyiFace = (): YuyiRemoteFace => {
+    const face = (ctx as unknown as { get(name: string): unknown }).get('remote.yuyi') as YuyiRemoteFace | undefined
+    if (face === undefined) throw new Error('yuyi remote namespace is not mounted yet')
+    return face
+  }
+  const mirror = new YuyiStatusMirror(async () => unwrap(await yuyiFace().status()))
   ctx.effect(() => mirror.start(), 'dsh-yuyi: status mirror')
 
   const tabT = ctx.locale.bind(TAB_NS)
@@ -85,14 +95,39 @@ export function apply(ctx: ClientContext): void {
     locale: TAB_NS,
     label: () => tabT('tab.label'),
     inject: (sessionId: SessionId): YuyiViewInjected => ({
-      readStatus: async () => unwrap(await yuyi.status()),
+      readStatus: async () => unwrap(await yuyiFace().status()),
       readInbox: async (target, peek) =>
-        inboxRows(unwrap(await yuyi.inbox(target === 'device' ? target : sessionId, peek))),
+        inboxRows(unwrap(await yuyiFace().inbox(target === 'device' ? target : sessionId, peek))),
       onStatusChange: listener => mirror.subscribe(() => { listener() }),
     }),
   }, YuyiView))
 
   const scope = ctx.settingsScope.bind<YuyiSettingsValue>({ namespace: YUYI_SETTINGS_NAMESPACE })
+  // 令牌操作面：值经凭证域只写不读，引用名取当前 tokenEnv 设置（默认
+  // YUYI_TOKEN）。宿主凭证库（.credentials.yaml）是 dsh 适配器的专属
+  // 存储——不与其他 Agent 共享环境变量；凭证写入经 `credentials/updated`
+  // 转发回来驱动区块徽标刷新，宿主侧同名事件触发即时重连。
+  const credentials = ctx.connection.api.credentials
+  const tokenRef = (): string => scope.getSnapshot().value?.tokenEnv ?? 'YUYI_TOKEN'
+  const tokenStore: YuyiTokenStore = {
+    async read() {
+      const ref = tokenRef()
+      const response = await credentials.describe({ refs: [ref] })
+      if (!response.result.ok) throw new Error(response.result.error.message ?? 'credentials describe failed')
+      return response.result.value.credentials[ref] ?? { configured: false, writable: true }
+    },
+    async save(value) {
+      const response = await credentials.set({ ref: tokenRef(), value })
+      if (!response.result.ok) throw new Error(response.result.error.message ?? 'credentials set failed')
+    },
+    async clear() {
+      const response = await credentials.unset({ ref: tokenRef() })
+      if (!response.result.ok) throw new Error(response.result.error.message ?? 'credentials unset failed')
+    },
+    onChange(listener) {
+      return ctx.remote.$on('credentials/updated', (ref: unknown) => { if (String(ref) === tokenRef()) listener() })
+    },
+  }
   const sectionT = ctx.locale.bind(SECTION_NS)
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -104,6 +139,7 @@ export function apply(ctx: ClientContext): void {
       hooks: { settings: scope, status: mirror },
       save: (field, value) => scope.set(field, value),
       reset: field => scope.unset(field),
+      token: tokenStore,
     }),
   }, YuyiSettingsSection))
 }

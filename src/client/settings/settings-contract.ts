@@ -34,6 +34,27 @@ export interface YuyiFieldDescriptor {
 export const CONNECTION_FIELDS: readonly YuyiFieldDescriptor[] = [
   { field: 'hub', kind: 'text' },
   { field: 'device', kind: 'text' },
-  { field: 'tokenEnv', kind: 'text' },
   { field: 'replyTimeoutMs', kind: 'number' },
 ]
+
+/* * 令牌凭证的一次状态（值永不回读，只有配置/可写事实）。 */
+export interface YuyiTokenState {
+  configured: boolean
+  writable: boolean
+}
+
+/**
+ * 本适配器专属令牌的操作面。御驿一机多 Agent、令牌按 Agent 签发，
+ * 因此 dsh 适配器的令牌直接写入宿主凭证库（.credentials.yaml，经
+ * `tokenEnv` 命名的引用），绝不读取共享环境变量——那是其他 Agent 的。
+ */
+export interface YuyiTokenStore {
+  /* * 查询当前引用下的令牌状态。 */
+  read(): Promise<YuyiTokenState>
+  /* * 写入令牌值（只写不读）。 */
+  save(value: string): Promise<void>
+  /* * 清除已存令牌。 */
+  clear(): Promise<void>
+  /* * 订阅该引用的令牌变更（写入、清除或外部改动）。 */
+  onChange(listener: () => void): () => void
+}

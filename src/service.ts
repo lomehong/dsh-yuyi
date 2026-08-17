@@ -129,6 +129,11 @@ export default class YuyiRuntime extends TypertRemoteService {
       setSource: (source) => { this.settingsSource = source },
       onChange: () => { void this.reconnect() },
     })
+    // 令牌是本适配器（dsh）的专属凭证：设置页经凭证域写入/清除后，
+    // 凭此事件即时重连，不等下一次设置变更。
+    ctx.on('credentials/updated', (ref: unknown) => {
+      if (String(ref) === this.settingsSource().tokenEnv) void this.reconnect()
+    })
     ctx.effect(() => () => {
       this.disposed = true
       this.stop()
