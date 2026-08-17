@@ -26,9 +26,12 @@ const PLATFORM_MODULES = [
 const CSS_VIRTUAL_PREFIX = '\0dsh-yuyi-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-/* * 把一个本地类名哈希为模块作用域内无冲突的名字。 */
+/* * 把一个本地类名哈希为模块作用域内无冲突的名字。
+   下划线前缀是必需的：裸十六进制哈希有 ~60% 概率以数字开头，
+   而 CSS 类选择器不得以数字开头——`.5c6a…_input` 这类规则会被
+   CSSOM 静默丢弃，导致大片样式随机失效。 */
 function scopedClass(file: string, cls: string): string {
-  return `${createHash('sha256').update(`${file}#${cls}`).digest('hex').slice(0, 10)}_${cls}`
+  return `_${createHash('sha256').update(`${file}#${cls}`).digest('hex').slice(0, 10)}_${cls}`
 }
 
 export default defineConfig({
