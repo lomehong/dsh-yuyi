@@ -209,8 +209,9 @@ export function applyMessagingTools(ctx: Context): void {
 
   ctx.tools.register(defineTool({
     name: 'yuyi_register',
-    description: 'Register this session into the yuyi roster under an alias so other agents can '
-      + 'address it. Register before expecting wake deliveries; the alias must be unique on this device.',
+    description: 'Register this session into the yuyi roster so agent-level deliveries have a '
+      + 'session to land on. With an authoritative yufu agent name the alias is a local label '
+      + 'only: peers address you by that agent name (see yuyi_status), never by this alias.',
     parameters: {
       name: { type: 'string', required: true, description: 'Alias other agents address this session by (e.g. "coder-1").' },
       title: { type: 'string', description: 'Short human label shown to peers. Defaults to a session-derived label.' },
@@ -346,8 +347,9 @@ export function applyMessagingTools(ctx: Context): void {
     name: 'yuyi_send',
     description: 'Send a yuyi message. `notify` wakes the addressed session (falling back to its '
       + 'inbox when it cannot be woken); `mail` always parks in an inbox. With `expect_reply` the call '
-      + 'blocks until the reply arrives or the configured timeout. Addressing: alias, session id, '
-      + '`device:target`, `owner/device:target`, or `*` for broadcast.',
+      + 'blocks until the reply arrives or the configured timeout. Addressing: the peer\'s '
+      + 'authoritative yufu agent name (see yuyi_peers), a session id, `device:target`, '
+      + '`owner/device:target`, or `*` for broadcast.',
     parameters: {
       to: { type: 'string', required: true, description: 'Recipient address.' },
       text: { type: 'string', required: true, description: 'Message body the recipient reads.' },

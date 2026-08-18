@@ -7,6 +7,7 @@
  */
 
 import type { YuyiMessage } from './core.ts'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /* * 以 hub 背书的最具体身份标注发送者。 */
 function senderLabel(message: YuyiMessage): string {
@@ -38,4 +39,41 @@ export function formatIncoming(message: YuyiMessage): string {
  */
 export function deliverySummary(message: YuyiMessage): string {
   return `${senderLabel(message)} → ${message.to.target}`
+}
+
+/**
+ * 回信寻址：发送方别名优先（同设备裸名），跨设备/跨 owner 按 parseAddress
+ * 词法补前缀。用于自动回执与自动回报的投递目标推导。
+ * @param message - 入站消息（from 字段已由 hub 权威回填）。
+ * @param selfDevice - 本机设备名。
+ * @param selfOwner - 本连接的 owner 用户名（未知时按同 owner 处理）。
+ * @returns 可投递的回信地址。
+ */
+export function replyAddressOf(message: YuyiMessage, selfDevice: string, selfOwner?: string): string {
+  const bare = message.from.name ?? message.from.sessionID
+  let address = bare
+  if (message.from.device.length > 0 && message.from.device !== selfDevice) address = `${message.from.device}:${bare}`
+  if (message.from.ownerUsername !== undefined && message.from.ownerUsername !== selfOwner) {
+    address = `${message.from.ownerUsername}/${address}`
+  }
+  return address
+}
+
+/**
+ * 收集基线 seq 之后本回合产出的助手文本（最后一个非空助手消息为准）。
+ * @param events - 会话事件日志。
+ * @param baselineSeq - 注入前的会话 seq。
+ * @returns 本回合助手文本；无输出为空串。
+ */
+export function collectAssistantText(events: readonly SessionEvent[], baselineSeq: number): string {
+  let text = ''
+  for (const event of events) {
+    if (event.seq < baselineSeq || event.type !== 'assistant/message') continue
+    const joined = event.data.message.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('')
+    if (joined !== '') text = joined
+  }
+  return text
 }

@@ -38,8 +38,13 @@ export function apply(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:yuyi',
     order: 107,
-    text: 'The yuyi_* tools reach other agents through the hub relay. Register this session '
-      + '(yuyi_register) before expecting wake deliveries. Prefer yuyi_task_continue over bare '
+    text: 'The yuyi_* tools reach other agents through the hub relay. Address peers by their '
+      + 'authoritative yufu agent name (see yuyi_peers) or a session id; when this agent has an '
+      + 'authoritative name, aliases from yuyi_register are local labels only and do not route. '
+      + 'Register this session (yuyi_register) before expecting wake deliveries: an agent-level '
+      + 'delivery lands on the earliest registered session. A woken session auto-acknowledges '
+      + 'immediately and mails its turn result back when the turn settles (auto messages carry '
+      + 'a yuyi:auto context hint and never re-arm the machinery). Prefer yuyi_task_continue over bare '
       + 'yuyi_send for multi-round work: it keeps the durable task record threaded. Check '
       + 'yuyi_status first when a send fails; mail and unwakeable deliveries park in inboxes '
       + 'the yuyi_inbox tool reads.',

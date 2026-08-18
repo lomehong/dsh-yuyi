@@ -511,6 +511,78 @@ describe('delivery routing', () => {
     expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-plain' })
     expect(plain.followup).toHaveBeenCalledTimes(1)
   })
+
+  it('routes a delivery addressed to the authoritative agent name to the primary session', async () => {
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-main'), { title: 'Main', directory: '/m', name: 'local-alias' })
+    const idle = fakeAgent(ctx, 'sess-main', 'idle')
+    // 统一智能体名称寻址：权威名（fixture welcome 的 agentName）命中的投递
+    // 由端侧分发给最早注册的主会话，而不是按别名/sessionID 匹配失败停箱。
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'Fixture-Agent' } }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-main' })
+    expect(idle.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('still parks agent-name deliveries in the device inbox when no session is registered', async () => {
+    const hub = await startHub()
+    const { service } = await connectedService(hub)
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' } }))
+    expect(ack).toMatchObject({ ok: true, detail: 'no local roster match; parked in device inbox' })
+    expect(service.inboxRead('device').map(entry => entry.message.to.target)).toEqual(['fixture-agent'])
+  })
+
+  it('acknowledges a wake immediately and mails the turn result when it settles', async () => {
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-auto'), { title: 'A', directory: '/a', name: 'worker-auto' })
+    let releaseIdle!: () => void
+    const id = SessionId('sess-auto')
+    const events: unknown[] = []
+    const agent = {
+      id,
+      ctx,
+      followup: vi.fn(),
+      steer: vi.fn(),
+      status: 'idle' as const,
+      whenIdle: () => new Promise<void>((resolve) => { releaseIdle = resolve }),
+      session: { id, header: { version: 0, id, createdAt: 0 }, seq: 0, events },
+    } as unknown as Agent
+    const dispose = ctx.agents.register(agent)
+    teardowns.push(async () => { dispose() })
+
+    await hub.deliver(remoteMessage({ id: 'msg_auto', taskId: 'task-auto-1', to: { target: 'worker-auto' } }))
+    // 即时回执：mail 回发送方（带设备+owner 前缀），挂任务链与自动标记，不带 replyTo（不消费等待者）
+    await vi.waitFor(() => {
+      expect(hub.sentMessages.some(message =>
+        message.mode === 'mail' && message.contextHint === 'yuyi:auto-ack'
+        && message.taskId === 'task-auto-1'
+        && message.replyTo === undefined)).toBe(true)
+    }, { timeout: 5_000, interval: 20 })
+    // 回合未落定前不产生结果回报
+    expect(hub.sentMessages.some(message => message.contextHint === 'yuyi:auto-result')).toBe(false)
+    // 回合产出并落定：结果带 replyTo 回报（消费等待者）
+    events.push({ seq: 1, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '处理完成：已核对' }] } } })
+    releaseIdle()
+    await vi.waitFor(() => {
+      expect(hub.sentMessages.some(message =>
+        message.contextHint === 'yuyi:auto-result' && message.replyTo === 'msg_auto'
+        && message.text.includes('处理完成'))).toBe(true)
+    }, { timeout: 5_000, interval: 20 })
+  })
+
+  it('never arms auto machinery for auto-produced messages', async () => {
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-auto2'), { title: 'A2', directory: '/a2', name: 'worker-auto2' })
+    const idle = fakeAgent(ctx, 'sess-auto2', 'idle')
+    const before = hub.sentMessages.length
+    await hub.deliver(remoteMessage({ id: 'msg_loop', to: { target: 'worker-auto2' }, contextHint: 'yuyi:auto-ack' }))
+    expect(idle.followup).toHaveBeenCalledTimes(1)
+    await new Promise(resolve => { setTimeout(resolve, 100) })
+    // 自动机制产出的消息不再触发回执/回报（防环）
+    expect(hub.sentMessages.length).toBe(before)
+  })
 })
 
 describe('hub inbox and peers', () => {
@@ -534,6 +606,19 @@ describe('hub inbox and peers', () => {
     hub.peersDevices = [device]
     const { service } = await connectedService(hub)
     await expect(service.peers()).resolves.toEqual([device])
+  })
+
+  it('strips hub-internal markers from peer sessions', async () => {
+    const hub = await startHub()
+    hub.peersDevices = [{
+      device: 'remote-dev',
+      instanceID: 'inst-1',
+      sessions: [{ sessionID: 's1', title: 'T', directory: '/d', agentNameHit: true } as never],
+    }]
+    const { service } = await connectedService(hub)
+    const devices = await service.peers()
+    expect(devices[0]!.sessions[0]).toEqual({ sessionID: 's1', title: 'T', directory: '/d' })
+    expect('agentNameHit' in (devices[0]!.sessions[0] as object)).toBe(false)
   })
 })
 

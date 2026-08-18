@@ -40,7 +40,7 @@ import {
   type RosterSession,
   type YuyiMessage,
 } from './core.ts'
-import { deliverySummary, formatIncoming } from './delivery.ts'
+import { collectAssistantText, deliverySummary, formatIncoming, replyAddressOf } from './delivery.ts'
 import { YuyiError } from './types.ts'
 import type {
   YuyiConfig, YuyiDeliveryRoute, YuyiReplyResult, YuyiRosterEntry,
@@ -72,6 +72,12 @@ const SETTINGS_NAMESPACE = settingsNamespace('yuyi')
 
 /* * 未命中任何 roster 会话的消息的收件箱键（设备级停靠）。 */
 const DEVICE_INBOX_KEY = 'device'
+/* * 自动回执/自动回报的 contextHint 前缀：接收侧见到该前缀不再挂自动机制（防环）。 */
+const AUTO_HINT_PREFIX = 'yuyi:auto'
+/* * 处理结果观察的最长等待：回合被中止或卡死时超时静默放弃（等待方按自身超时收敛）。 */
+const AUTO_RESULT_TIMEOUT_MS = 10 * 60_000
+/* * 自动回报正文的长度上限。 */
+const AUTO_RESULT_TEXT_CAP = 4000
 
 /* * 一个已注册的等回复等待者。 */
 interface PendingReply {
@@ -111,6 +117,12 @@ export default class YuyiRuntime extends TypertRemoteService {
   private disposed = false
   /* * 串行化连接周期，使设置变更与挂起中的 start 竞态时不泄漏客户端。 */
   private connectionTail: Promise<void> = Promise.resolve()
+  /* * 休眠态（未配置/令牌未解析）的低频重试定时器；stop 时清除。 */
+  private retryTimer: ReturnType<typeof setTimeout> | undefined
+  /* * 上一状态转移时的连接态，用于在连接建立瞬间补推 roster。 */
+  private wasConnected = false
+  /* * 每个会话至多一个进行中的结果观察器；同回合多次唤醒只回报一次。 */
+  private readonly pendingResultWatches = new Set<string>()
   private resolvedDevice: string
 
   /**
@@ -301,7 +313,20 @@ export default class YuyiRuntime extends TypertRemoteService {
    */
   @Remote('peers')
   async peers(): Promise<PeerDevice[]> {
-    return await this.requireConnected().peers()
+    const devices = await this.requireConnected().peers()
+    // Hub 的 findTargets 会把内部命中标记（agentNameHit）原地写进会话对象，
+    // 并随 peers 响应泄漏给端侧；这里把会话投影回协议声明的字段，避免
+    // 污染工具的严格输出 schema（additionalProperties: false）。
+    return devices.map(device => ({
+      ...device,
+      sessions: device.sessions.map((session): RosterSession => ({
+        sessionID: session.sessionID,
+        title: session.title,
+        directory: session.directory,
+        ...(session.name !== undefined ? { name: session.name } : {}),
+        ...(session.capabilities !== undefined ? { capabilities: session.capabilities } : {}),
+      })),
+    }))
   }
 
   /**
@@ -396,7 +421,13 @@ export default class YuyiRuntime extends TypertRemoteService {
     this.hubUrl = hub
     this.tokenFound = token !== undefined && token.length > 0
     this.emitStatus()
-    if (hub.length === 0 || token === undefined || token.length === 0) return
+    if (hub.length === 0 || token === undefined || token.length === 0) {
+      // 休眠不是终态：配置可能随时补齐（凭证服务在 boot 竞态中晚到、
+      // 用户随后录入令牌、env 文件修复）。30s 的本地重解析在网络静默期
+      // 零成本；首轮曾因此永久休眠（boot 时凭证服务未就绪即再未重试）。
+      this.retryTimer = setTimeout(() => { void this.reconnect() }, 30_000)
+      return
+    }
     this.client = new HubClient({
       url: hub,
       device: this.resolvedDevice,
@@ -415,6 +446,12 @@ export default class YuyiRuntime extends TypertRemoteService {
       // 使监听器无需轮询即可观察落定字段。
       log: (message) => {
         this.ctx.logger.info(`yuyi: ${message}`)
+        // 连接建立瞬间补推 roster：休眠期（client 尚不存在）注册的会话
+        // 此前无处推送，而 HubClient 仅在 welcome 后推一次它自己的（空）名单。
+        // 空名单不推：无注册时的空帧既无信息量也会与注册推送竞态。
+        const nowConnected = this.client?.connected === true
+        if (nowConnected && !this.wasConnected && this.roster.size > 0) this.pushRoster()
+        this.wasConnected = nowConnected
         this.emitStatus()
       },
     })
@@ -422,6 +459,11 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   private stop(): void {
+    if (this.retryTimer !== undefined) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = undefined
+    }
+    this.wasConnected = false
     this.client?.stop()
     this.client = undefined
     for (const [, waiter] of this.pendingReplies) {
@@ -501,6 +543,13 @@ export default class YuyiRuntime extends TypertRemoteService {
     for (const entry of this.roster.values()) {
       if (matchSession(this.toRosterSession(entry), target)) return entry
     }
+    // 统一智能体名称寻址（2026-08-14 定案）：御符权威 agent_name 是唯一
+    // 路由身份——Hub 不注册适配器自报别名，agent 级命中只保证「投到本
+    // 连接」，由端侧分发。这里把权威名投递分发给最早注册的主会话。
+    const agentName = this.client?.agentName
+    if (agentName !== undefined && agentName.toLowerCase() === target.toLowerCase()) {
+      return this.roster.values().next().value
+    }
     return undefined
   }
 
@@ -551,6 +600,8 @@ export default class YuyiRuntime extends TypertRemoteService {
         summary: deliverySummary(message),
       },
     })
+    // 基线先于注入：本回合的助手文本按 seq 边界收集。
+    const baselineSeq = agent.session.seq
     if (agent.status === 'idle') {
       agent.followup(userMessage)
       this.trace(message.id, 'injected', 'followup')
@@ -560,7 +611,72 @@ export default class YuyiRuntime extends TypertRemoteService {
       this.trace(message.id, 'injected', 'steer')
       this.emitDelivered(message, 'steered', entry.sessionId)
     }
+    // 唤醒即回执、回合落定自动回报：发送方从「已投递」到「出结果」不再
+    // 是黑箱。自动机制自身产出的消息（yuyi:auto 前缀标记）不再挂机制，防环。
+    if (message.contextHint?.startsWith(AUTO_HINT_PREFIX) !== true) {
+      void this.autoAcknowledge(message, entry.sessionId)
+      this.watchTurnResult(agent, entry.sessionId, message, baselineSeq)
+    }
     return { ok: true, handlerSessionID: entry.sessionId }
+  }
+
+  /* * 唤醒后的即时回执：mail 入发送方收件箱；不带 replyTo——不消费等回复等待者。 */
+  private async autoAcknowledge(message: YuyiMessage, fromSession: SessionId): Promise<void> {
+    try {
+      await this.send({
+        to: replyAddressOf(message, this.resolvedDevice, this.client?.ownerUsername),
+        text: `已收到，正在处理。（回执对应 ${message.id}）`,
+        mode: 'mail',
+        fromSession,
+        ...(message.taskId !== undefined ? { taskId: message.taskId } : {}),
+        contextHint: `${AUTO_HINT_PREFIX}-ack`,
+      })
+    } catch (error) {
+      this.ctx.logger.warn('yuyi: auto-ack failed', error)
+    }
+  }
+
+  /* * 观察回合落定，把本回合的助手文本作为处理结果回信。 */
+  private watchTurnResult(agent: Agent, sessionId: SessionId, message: YuyiMessage, baselineSeq: number): void {
+    if (this.pendingResultWatches.has(sessionId)) return
+    this.pendingResultWatches.add(sessionId)
+    void (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          agent.whenIdle(),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => { reject(new Error('auto-result watch timeout')) }, AUTO_RESULT_TIMEOUT_MS)
+          }),
+        ])
+        const text = collectAssistantText(agent.session.events, baselineSeq)
+        if (text.length > 0) await this.autoReport(message, sessionId, text)
+      } catch {
+        // 回合中止/代理销毁/观察超时：静默放弃，等待方按自身超时收敛。
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
+        this.pendingResultWatches.delete(sessionId)
+      }
+    })()
+  }
+
+  /* * 处理结果回信：带 replyTo（消费发送方的等回复等待者），仍走 mail 不打扰。 */
+  private async autoReport(message: YuyiMessage, fromSession: SessionId, text: string): Promise<void> {
+    const body = text.length > AUTO_RESULT_TEXT_CAP ? `${text.slice(0, AUTO_RESULT_TEXT_CAP)}…（截断）` : text
+    try {
+      await this.send({
+        to: replyAddressOf(message, this.resolvedDevice, this.client?.ownerUsername),
+        text: body,
+        mode: 'mail',
+        fromSession,
+        replyTo: message.id,
+        ...(message.taskId !== undefined ? { taskId: message.taskId } : {}),
+        contextHint: `${AUTO_HINT_PREFIX}-result`,
+      })
+      this.trace(message.id, 'replied', 'auto-result')
+    } catch (error) {
+      this.ctx.logger.warn('yuyi: auto-result failed', error)
+    }
   }
 
   private pushRoster(): void {
