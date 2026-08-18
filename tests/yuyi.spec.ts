@@ -293,6 +293,23 @@ describe('roster registration', () => {
     void ctx
   })
 
+  it('re-pushes the roster after a service-level reconnect', async () => {
+    const hub = await startHub()
+    const { service } = await connectedService(hub)
+    service.register(SessionId('sess-a'), { title: 'A', directory: '/a', name: 'worker-a' })
+    await vi.waitFor(() => { expect(hub.rosterFrames.length).toBeGreaterThanOrEqual(1) })
+    const before = hub.rosterFrames.length
+    // 服务级重连：stop() 后新建 HubClient（新 instanceID、空内部名单）——
+    // start() 必须把当前 roster 种进新客户端，welcome 后才会推给 hub。
+    await (service as unknown as { reconnect(): Promise<void> }).reconnect()
+    await vi.waitFor(() => { expect(service.status().connected).toBe(true) })
+    await vi.waitFor(() => {
+      expect(hub.rosterFrames.length).toBeGreaterThan(before)
+      const latest = hub.rosterFrames.at(-1) as RosterSession[]
+      expect(latest.some(entry => entry.sessionID === 'sess-a' && entry.name === 'worker-a')).toBe(true)
+    })
+  })
+
   it('rejects a duplicate alias held by another session', async () => {
     const { service } = await setup()
     const first = service.register(SessionId('sess-a'), { title: 'A', directory: '/a', name: 'solo' })

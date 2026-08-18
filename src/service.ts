@@ -119,8 +119,6 @@ export default class YuyiRuntime extends TypertRemoteService {
   private connectionTail: Promise<void> = Promise.resolve()
   /* * 休眠态（未配置/令牌未解析）的低频重试定时器；stop 时清除。 */
   private retryTimer: ReturnType<typeof setTimeout> | undefined
-  /* * 上一状态转移时的连接态，用于在连接建立瞬间补推 roster。 */
-  private wasConnected = false
   /* * 每个会话至多一个进行中的结果观察器；同回合多次唤醒只回报一次。 */
   private readonly pendingResultWatches = new Set<string>()
   private resolvedDevice: string
@@ -446,15 +444,14 @@ export default class YuyiRuntime extends TypertRemoteService {
       // 使监听器无需轮询即可观察落定字段。
       log: (message) => {
         this.ctx.logger.info(`yuyi: ${message}`)
-        // 连接建立瞬间补推 roster：休眠期（client 尚不存在）注册的会话
-        // 此前无处推送，而 HubClient 仅在 welcome 后推一次它自己的（空）名单。
-        // 空名单不推：无注册时的空帧既无信息量也会与注册推送竞态。
-        const nowConnected = this.client?.connected === true
-        if (nowConnected && !this.wasConnected && this.roster.size > 0) this.pushRoster()
-        this.wasConnected = nowConnected
         this.emitStatus()
       },
     })
+    // 新客户端先种入当前 roster 再启动：welcome 后 HubClient 会推一次自己的
+    // 名单——服务级重连（新实例，空名单）与休眠期注册（client 当时不存在）
+    // 两条路径都靠这一步保证 hub 侧名单不丢。内部自动重连复用同一实例，
+    // 其 roster 天然保留。
+    this.client.updateRoster(this.currentRosterSessions())
     this.client.start()
   }
 
@@ -463,7 +460,6 @@ export default class YuyiRuntime extends TypertRemoteService {
       clearTimeout(this.retryTimer)
       this.retryTimer = undefined
     }
-    this.wasConnected = false
     this.client?.stop()
     this.client = undefined
     for (const [, waiter] of this.pendingReplies) {
@@ -679,8 +675,13 @@ export default class YuyiRuntime extends TypertRemoteService {
     }
   }
 
+  /* * 当前 roster 的协议形态（推送与种入新客户端共用）。 */
+  private currentRosterSessions(): RosterSession[] {
+    return [...this.roster.values()].map(entry => this.toRosterSession(entry))
+  }
+
   private pushRoster(): void {
-    this.client?.updateRoster([...this.roster.values()].map(entry => this.toRosterSession(entry)))
+    this.client?.updateRoster(this.currentRosterSessions())
   }
 
   private emitDelivered(message: YuyiMessage, route: YuyiDeliveryRoute, sessionId?: SessionId): void {
