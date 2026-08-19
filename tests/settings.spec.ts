@@ -1,8 +1,7 @@
 import './env.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context, type Context as CordisContext } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import { CredentialProvider, type CredentialInfo, type CredentialRef, type ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
 import type { Fiber } from '@deepseek-ai/cordis'
 import { mkdtempSync } from 'node:fs'
@@ -10,9 +9,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import YuyiRuntime from '../src/service.ts'
 import { FixtureHub } from './fixture-hub.ts'
+import { StubCredentials } from './fixture-credentials.ts'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
-// token 经 per-agent 文件（tests/env.ts 写入）解析；环境变量不再是 token 来源。
+// token 唯一来源是 dsh 凭证库。环境变量里再写一个 ambient 不会改变什么。
 process.env.YUYI_TOKEN = 'ambient-other-agent-token'
 
 const NS = settingsNamespace('yuyi')
@@ -26,47 +26,6 @@ afterEach(async () => {
     if (dispose !== undefined) await dispose()
   }
 })
-
-/* * 解析被挂起直至测试放行的凭证提供者。 */
-class ManualCredentials extends CredentialProvider {
-  private readonly gate: Promise<void>
-  private readonly releaseGate: () => void
-
-  constructor(ctx: CordisContext, private readonly value: string, held: boolean) {
-    super(ctx)
-    if (!held) {
-      this.gate = Promise.resolve()
-      this.releaseGate = () => {}
-      return
-    }
-    let release!: () => void
-    this.gate = new Promise<void>((resolve) => { release = resolve })
-    this.releaseGate = () => { release() }
-  }
-
-  /* * 放行被挂起的解析。 */
-  release(): void {
-    this.releaseGate()
-  }
-
-  async resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
-    if (ref !== 'YUYI_TOKEN') return undefined
-    await this.gate
-    return { value: this.value, source: 'stub' }
-  }
-
-  async describe(): Promise<CredentialInfo> {
-    return { configured: false, writable: false }
-  }
-
-  async set(): Promise<void> {
-    throw new Error('manual credentials are read-only')
-  }
-
-  async unset(): Promise<void> {
-    throw new Error('manual credentials are read-only')
-  }
-}
 
 interface BootOptions {
   hub?: string
@@ -82,6 +41,8 @@ interface Booted {
   releaseToken: () => void
 }
 
+const SEED_TOKEN = 'manual-token-value'
+
 async function boot(options: BootOptions = {}): Promise<Booted> {
   const ctx = new Context()
   teardowns.push(async () => { await ctx.fiber.dispose() })
@@ -91,13 +52,13 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
   const settingsFiber = ctx.plugin(FileSettingsProvider, { path: join(home, 'settings.yaml'), watch: false })
   await settingsFiber
   teardowns.push(async () => { await settingsFiber.dispose() })
-  let credentials: ManualCredentials | undefined
-  if (options.heldToken === true) {
-    const fiber = await ctx.plugin((child: Context) => {
-      credentials = new ManualCredentials(child, 'manual-token-value', true)
-    })
-    teardowns.push(async () => { await fiber.dispose() })
-  }
+  // 凭证库（stub）等价于"用户在御驿设置界面录入 token"；held 模式测
+  // boot 时凭证服务晚到 / 解析期间 attach 的真实场景。
+  let credentials: StubCredentials | undefined
+  const credentialsFiber = await ctx.plugin((child: Context) => {
+    credentials = new StubCredentials(child, { value: SEED_TOKEN, held: options.heldToken === true })
+  })
+  teardowns.push(async () => { await credentialsFiber.dispose() })
   const fiber = await ctx.plugin(YuyiRuntime, {
     tokenEnv: 'YUYI_TOKEN',
     replyTimeoutMs: 150,

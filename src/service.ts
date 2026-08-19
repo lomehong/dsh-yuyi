@@ -31,7 +31,6 @@ import {
   matchSession,
   newID,
   parseAddress,
-  readDshTokenFile,
   yuyiEnv,
   append as inboxAppend,
   count as inboxCount,
@@ -371,15 +370,13 @@ export default class YuyiRuntime extends TypertRemoteService {
   private async resolveToken(): Promise<string | undefined> {
     const tokenEnv = this.settingsSource().tokenEnv
     const credentials = this.ctx.get('credentials')
-    if (credentials !== undefined) {
-      const hit = await credentials.resolve(credentialRef(tokenEnv))
-      if (hit !== undefined) return hit.value
+    if (credentials === undefined) {
+      this.ctx.logger.warn('yuyi: credentials service not available; service will stay dormant')
+      return undefined
     }
-    // 兜底只认 dsh 专属 token 文件（安装器 per-agent 写入 ~/.yuyi/dsh-token）。
-    // 刻意不回退启动环境变量/共享 ~/.yuyi/env：多 Agent 设备上安装器为其他
-    // Agent（如 opencode）设置的用户级 YUYI_TOKEN 会被本进程继承，回退即跨
-    // Agent 串用 token——hub 侧身份错配、吊销联动失效、sign_key 主体错配。
-    return readDshTokenFile()
+    const hit = await credentials.resolve(credentialRef(tokenEnv))
+    if (hit === undefined) return undefined
+    return hit.value
   }
 
   /* * 当前设置源下的设备身份；无命名时为主机名。 */

@@ -56,16 +56,28 @@ export function yuyiEnv(key: string): string | undefined {
 }
 
 /**
- * 读取 dsh 专属 token 文件 `~/.yuyi/dsh-token`（Yuyi 安装器 per-agent 写入，
- * 与 ~/.yuyi/omp-token 同约定：纯文本单行）。YUYI_STATE_DIR 优先于 ~。
+ * 探测安装器写入的 dsh token 文件 `~/.yuyi/dsh-token`（Yuyi 安装器 per-agent
+ * 写入，与 ~/.yuyi/omp-token 同约定：纯文本单行）。YUYI_STATE_DIR 优先于 ~。
  *
- * 历史教训：token 曾回退读启动环境变量与共享 ~/.yuyi/env——多 Agent 设备上
- * 安装器（opencode 分支 / 旧版本）设置的用户级 YUYI_TOKEN 会被 dsh 进程继承，
- * 造成跨 Agent 串用 token（hub 侧身份错配、吊销联动失效、sign_key 主体错配）。
- * 因此 token 的兜底只认本 Agent 专属文件；通用环境变量与共享 env 文件仅保留
- * 给设备级配置（YUYI_HUB / YUYI_DEVICE / YUYI_YUFU_URL）。
+ * 注意：这是**设置界面探测用**的工具，仅供客户端代码在用户设置界面识别
+ * "这台机器上 yuyi 安装器已经为 dsh 写过配置"——提示用户把该 token 写入
+ * dsh 凭证库。**运行时（service.ts 的 resolveToken）绝不能调用本函数**。
+ * 任何一个版本如果把这份文件当作连接 token 的"兜底来源"，都会重新引入
+ * 跨 Agent 串用风险：
+ *
+ * - 安装器 opencode 分支（b7bf367）/ 旧版本会把 opencode 自己的 token 写进
+ *   用户级 YUYI_TOKEN；任何继承该 env 的 dsh 进程如果再回退到 dsh-token
+ *   文件，就会把"其他 Agent 的 token"路径合法化。
+ * - 进程继承的环境变量本身不可控（用户级 / shell profile / pnpm 的
+ *   no-fallback 之类外部因素组合）。
+ * - 文件存在 ≠ 用户意图："装好就用"是安装器的体验假设，但 dsh 端应该是
+ *   设置界面经用户确认才录入凭证库（设置界面录入 = 用户意图；安装器写
+ *   的文件 = 机器的局部状态）。
+ *
+ * 唯一合规的 token 源：`ctx.credentials.resolve(credentialRef('YUYI_TOKEN'))`。
+ * 见 service.ts 的 resolveToken 注释。
  */
-export function readDshTokenFile(): string | undefined {
+export function peekInstallerDshToken(): string | undefined {
   const dir = process.env.YUYI_STATE_DIR ?? join(homedir(), ".yuyi")
   try {
     const raw = readFileSync(join(dir, "dsh-token"), "utf8").trim()

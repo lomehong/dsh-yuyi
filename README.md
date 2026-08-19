@@ -30,7 +30,7 @@ bundle 层挂载休眠的服务。再把 preset 行加进你的 preset，让会�
 `hub`、`tokenEnv`（默认 `YUYI_TOKEN`）、`device`、`replyTimeoutMs`——写在宿主行的 `config`，或走本服务注册的 `yuyi` 用户设置命名空间（编辑即即时重连）。
 
 - **hub / device**：显式配置 → 启动环境（`YUYI_HUB`、`YUYI_DEVICE`）→ `~/.yuyi/env`（Yuyi 安装器写的设备级文件）；device 最终回退主机名。
-- **token**：dsh 凭证服务（网页「设置 → 御驿」录入，存 `~/.dsh/.credentials.yaml`）→ `~/.yuyi/dsh-token`（Yuyi 安装器 per-agent 写入，与 `omp-token` 同约定）。**刻意不读**通用环境变量与共享 `~/.yuyi/env`——多 Agent 设备上安装器会为其他 Agent（如 opencode）设置用户级 `YUYI_TOKEN`，读了就是跨 Agent 串用 token（hub 侧身份错配、吊销联动失效）。
+- **token**：**唯一来源是 dsh 凭证服务（网页「设置 → 御驿」录入，存 `~/.dsh/.credentials.yaml`）**。运行时绝不读启动环境变量、共享 `~/.yuyi/env`、`~/.yuyi/dsh-token` 文件——这不是"先 a 后 b"的优先级排序，而是"只有 a 这一条"。每个 Yuyi Agent 必须有自己独立的 token，跨 Agent 串用（hub 侧身份错配、吊销联动失效、sign_key 主体错配）在 2026-08-19 修复后已不可能：曾经存在的二级回退（opencode 分支 b7bf367 / 旧版本安装器把其他 Agent 的 token 写进用户级 `YUYI_TOKEN`）被彻底移除。安装器写入 `~/.yuyi/dsh-token` 仅供设置界面"检测到安装器配置"时作为**导入候选**提示用户点击确认写入 dsh 凭证库——不参与运行时。
 
 令牌每次连接经凭证服务解析，本插件从不存储。未配置时保持休眠：所有触达 hub 的方法以稳定 `YuyiError` 错误码失败，不静默降级。
 

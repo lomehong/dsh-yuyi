@@ -1,9 +1,8 @@
 import './env.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context, type Context as CordisContext } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CredentialProvider, type CredentialInfo, type CredentialRef, type ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { PeerDevice, RosterSession, YuyiMessage } from '../src/core.ts'
@@ -14,12 +13,16 @@ import { hostname } from 'node:os'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FixtureHub } from './fixture-hub.ts'
-import { fakeHome, LAUNCH_TOKEN, writeDshToken } from './env.ts'
+import { StubCredentials } from './fixture-credentials.ts'
+import { fakeHome, LAUNCH_TOKEN } from './env.ts'
 
-// 模拟多 Agent 设备的环境污染：安装器 opencode 分支/旧版本会把其他 Agent 的
-// token 写进用户级 YUYI_TOKEN——本套件全程带着它跑，任何连接成功且 token 不是
-// 它的用例都在证明：通用环境变量不再被用作 token 来源（跨 Agent 串用防护）。
+// 模拟多 Agent 设备的污染：通用环境变量 + 共享 ~/.yuyi/env + 安装器写的
+// ~/.yuyi/dsh-token 全部被设计堵在门外（token 唯一来源是 dsh 凭证库）。
+// 这些污染源即使真存在，也必须全部被忽略——下面的注入就是为这个保证服务的。
 process.env.YUYI_TOKEN = 'ambient-other-agent-token'
+mkdirSync(join(fakeHome, '.yuyi'), { recursive: true })
+writeFileSync(join(fakeHome, '.yuyi', 'dsh-token'), 'ambient-file-other-agent-token')
+writeFileSync(join(fakeHome, '.yuyi', 'env'), 'YUYI_TOKEN=ambient-env-file-other-agent-token\n')
 
 /* * 每测试清理：插件 fiber 与 fixture hub，按最新优先销毁。 */
 const teardowns: Array<() => Promise<void>> = []
@@ -54,38 +57,13 @@ function fakeAgent(ctx: Context, sessionId: string, status: 'idle' | 'running'):
   return { followup, steer }
 }
 
-/* * 解析固定令牌值、或按需失败的凭证提供者。 */
-class StubCredentials extends CredentialProvider {
-  constructor(
-    ctx: CordisContext,
-    private readonly fail: boolean,
-    private readonly value: string | undefined,
-  ) {
-    super(ctx)
-  }
-
-  async resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
-    if (this.fail) throw new Error('stub credentials failure')
-    if (ref !== 'YUYI_TOKEN' || this.value === undefined) return undefined
-    return { value: this.value, source: 'stub' }
-  }
-
-  async describe(): Promise<CredentialInfo> {
-    return { configured: false, writable: false }
-  }
-
-  async set(): Promise<void> {
-    throw new Error('stub credentials are read-only')
-  }
-
-  async unset(): Promise<void> {
-    throw new Error('stub credentials are read-only')
-  }
-}
+/* * 共享的测试凭证库在 fixture-credentials.ts。同时也保留向后兼容的
+ * 旧别名（settings.spec.ts 直接传 fail 这个标记）。 */
+type CredentialsArg = { value: string } | { fail: true }
 
 interface SetupOptions {
   hub?: string
-  credentials?: { value: string } | { fail: true }
+  credentials?: CredentialsArg
   /* * 省略显式 device，让解析走过环境链。 */
   deviceless?: boolean
   /* * tokenEnv 指向空位，用于休眠场景。 */
@@ -99,8 +77,11 @@ async function setup(options: SetupOptions = {}): Promise<{ ctx: Context; servic
   let credentialsFiber: Fiber | undefined
   if (options.credentials !== undefined) {
     const credentials = options.credentials
+    const stubOptions: { value?: string; fail?: boolean } = 'fail' in credentials
+      ? { fail: true }
+      : { value: credentials.value }
     credentialsFiber = await ctx.plugin((child: Context) => {
-      new StubCredentials(child, 'fail' in credentials, 'fail' in credentials ? undefined : credentials.value)
+      new StubCredentials(child, stubOptions)
     })
     teardowns.push(async () => { await credentialsFiber!.dispose() })
   }
@@ -137,7 +118,8 @@ function remoteMessage(overrides: Partial<YuyiMessage> = {}): YuyiMessage {
 }
 
 async function connectedService(hub: FixtureHub): Promise<{ ctx: Context; service: YuyiRuntime; stop: () => Promise<void> }> {
-  const handle = await setup({ hub: hub.url })
+  // token 唯一来源是 dsh 凭证库——生产等价于设置界面 "保存 token" 后再启动。
+  const handle = await setup({ hub: hub.url, credentials: { value: LAUNCH_TOKEN } })
   await vi.waitFor(() => { expect(handle.service.status().connected).toBe(true) })
   return handle
 }
@@ -149,8 +131,8 @@ describe('yuyi service', () => {
   })
 
   it('stays dormant when hub or token do not resolve', async () => {
-    // 已挂载的凭证接缝未命中引用、per-agent 文件也无 token 时，
-    // 保持休眠而不是启动失败（也不捡环境变量里的污染物）。
+    // 凭证库没挂载 + 没有 hub 配置 → 保持休眠，而不是启动失败。
+    // （也不捡环境变量里的污染物——这是设计的硬保证。）
     const { service } = await setup({ absentToken: true, credentials: { value: 'other-token' } })
     await vi.waitFor(() => { expect(service.status().hub).toBe('') })
     const status = service.status()
@@ -161,21 +143,18 @@ describe('yuyi service', () => {
 
   it('reports a resolved hub with a missing token distinctly', async () => {
     const hub = await startHub()
-    // per-agent 文件也不放 token，才能构造"hub 已配置、token 缺失"。
-    writeDshToken(undefined)
-    try {
-      const { service } = await setup({ hub: hub.url, absentToken: true })
-      await vi.waitFor(() => { expect(service.status().hub).toBe(hub.url) })
-      expect(service.status().configured).toBe(false)
-      await expect(service.send({ to: 'peer', text: 'hi', mode: 'notify' }))
-        .rejects.toThrow(/hub set, token reference YUYI_ABSENT_TOKEN/)
-    } finally {
-      writeDshToken(LAUNCH_TOKEN)
-    }
+    // 凭证库没挂载 = 找不到 token → 报"token 缺失"。与 tokenEnv 指向空位
+    // （YUYI_ABSENT_TOKEN）的诊断消息一致。
+    const { service } = await setup({ hub: hub.url, absentToken: true })
+    await vi.waitFor(() => { expect(service.status().hub).toBe(hub.url) })
+    expect(service.status().configured).toBe(false)
+    await expect(service.send({ to: 'peer', text: 'hi', mode: 'notify' }))
+      .rejects.toThrow(/hub set, token reference YUYI_ABSENT_TOKEN/)
   })
 
   it('fails sends with YUYI_NOT_CONNECTED while the hub is unreachable', async () => {
-    const { service } = await setup({ hub: 'ws://127.0.0.1:1' })
+    // 注入凭证库 token（设置界面录入），让 service 确实进入"已配置但连接失败"状态。
+    const { service } = await setup({ hub: 'ws://127.0.0.1:1', credentials: { value: LAUNCH_TOKEN } })
     await vi.waitFor(() => { expect(service.status().hub).toBe('ws://127.0.0.1:1') })
     expect(service.status().configured).toBe(true)
     await vi.waitFor(() => { expect(service.status().lastError).toBeDefined() })
@@ -185,7 +164,9 @@ describe('yuyi service', () => {
 
   it('connects, reports welcome identity, and stops emitting once settled', async () => {
     const hub = await startHub()
-    const { ctx, service } = await setup({ hub: hub.url })
+    // token 唯一来源是 dsh 凭证库（用户设置界面写入）。注入 LAUNCH_TOKEN 走
+    // dsh 凭证库，文件/env 里的 ambient 全部不能溜进来。
+    const { ctx, service } = await setup({ hub: hub.url, credentials: { value: LAUNCH_TOKEN } })
     const statusSeen: boolean[] = []
     ctx.on('yuyi/status', ({ status }) => { statusSeen.push(status.connected) })
     await vi.waitFor(() => { expect(service.status().connected).toBe(true) })
@@ -207,40 +188,25 @@ describe('yuyi service', () => {
     expect(hub.helloFrames[0]).toMatchObject({ device: 'dsh-test-device', token: LAUNCH_TOKEN, agentKind: 'dsh' })
   })
 
-  it('resolves the token through the credentials seam, then the per-agent file; ambient sources are never used', async () => {
+  it('only resolves the token from the credentials seam; ambient env / per-agent file / shared env are all ignored', async () => {
     const hub = await startHub()
-    // 凭证接缝挂载期间优先。
+    // 凭证库命中 → 用该 token 连接。模块顶部注入的所有 ambient 污染源
+    // （进程 env.YUYI_TOKEN、~/.yuyi/dsh-token、~/.yuyi/env）全部不能溜进来。
     const seam = await setup({ hub: hub.url, credentials: { value: 'seam-token' } })
     await vi.waitFor(() => { expect(seam.service.status().connected).toBe(true) })
     expect(hub.helloFrames.at(-1)?.token).toBe('seam-token')
     await seam.stop()
 
-    // 无接缝时回退 per-agent 文件（~/.yuyi/dsh-token，安装器写入位）。
-    // 环境变量里躺着"其他 Agent 的 token"（模块顶部的 ambient 值）也不被读取。
-    const file = await setup({ hub: hub.url })
-    await vi.waitFor(() => { expect(file.service.status().connected).toBe(true) })
-    expect(hub.helloFrames.at(-1)?.token).toBe(LAUNCH_TOKEN)
-    await file.stop()
-
-    // 共享 env 文件（~/.yuyi/env）里的 YUYI_TOKEN 同样不是 token 来源。
-    mkdirSync(join(fakeHome, '.yuyi'), { recursive: true })
-    writeFileSync(join(fakeHome, '.yuyi', 'env'), 'YUYI_TOKEN=shared-file-token\n')
-    const shared = await setup({ hub: hub.url })
-    await vi.waitFor(() => { expect(shared.service.status().connected).toBe(true) })
-    expect(hub.helloFrames.at(-1)?.token).toBe(LAUNCH_TOKEN)
-    await shared.stop()
-
-    // 两级来源都缺席时保持休眠——绝不落到环境变量。
-    // （"不拉起客户端"由下方 fail-inside-seam 用例以全新 hub 验证；
-    // 这里 hub 上还挂着本用例前几步的客户端，hasClient 不具判别力。）
-    writeDshToken(undefined)
-    try {
-      const dormant = await setup({ hub: hub.url })
-      await vi.waitFor(() => { expect(dormant.service.status().hub).toBe(hub.url) })
-      expect(dormant.service.status().configured).toBe(false)
-    } finally {
-      writeDshToken(LAUNCH_TOKEN)
-    }
+    // 凭证库未挂载 → 即使环境变量 / 安装器文件 / 共享 env 里全部躺着
+    // "其他 Agent 的 token"，服务也保持休眠。这种"免配置就连上"的体验
+    // 正是我们要堵的——如果这个测试用例连上了，提单。
+    const ambient = await setup({ hub: hub.url })
+    await vi.waitFor(() => { expect(ambient.service.status().hub).toBe(hub.url) })
+    expect(ambient.service.status().configured).toBe(false)
+    expect(hub.helloFrames.find(f => f.token === 'ambient-other-agent-token'
+      || f.token === 'ambient-file-other-agent-token'
+      || f.token === 'ambient-env-file-other-agent-token')).toBeUndefined()
+    await ambient.stop()
   })
 
   it('stays dormant when token resolution fails inside the seam', async () => {
@@ -254,7 +220,7 @@ describe('yuyi service', () => {
   it('resolves the device from the launch environment when unconfigured', async () => {
     const hub = await startHub()
     process.env.YUYI_DEVICE = 'env-device'
-    const { service } = await setup({ hub: hub.url, deviceless: true })
+    const { service } = await setup({ hub: hub.url, deviceless: true, credentials: { value: LAUNCH_TOKEN } })
     await vi.waitFor(() => { expect(service.status().connected).toBe(true) })
     expect(service.status().device).toBe('env-device')
     delete process.env.YUYI_DEVICE
@@ -263,7 +229,7 @@ describe('yuyi service', () => {
   it('reports the hub url while the handshake is still pending', async () => {
     const hub = await startHub()
     hub.silent = true
-    const { service } = await setup({ hub: hub.url })
+    const { service } = await setup({ hub: hub.url, credentials: { value: LAUNCH_TOKEN } })
     await vi.waitFor(() => { expect(hub.helloFrames.length).toBe(1) })
     expect(service.status().connected).toBe(false)
     expect(service.status().lastError).toBeUndefined()
@@ -275,13 +241,13 @@ describe('yuyi service', () => {
     const hub = await startHub()
     mkdirSync(join(fakeHome, '.yuyi'), { recursive: true })
     writeFileSync(join(fakeHome, '.yuyi', 'env'), 'YUYI_DEVICE=file-device' + String.fromCharCode(10))
-    const file = await setup({ hub: hub.url, deviceless: true })
+    const file = await setup({ hub: hub.url, deviceless: true, credentials: { value: LAUNCH_TOKEN } })
     await vi.waitFor(() => { expect(file.service.status().connected).toBe(true) })
     expect(file.service.status().device).toBe('file-device')
     await file.stop()
 
     writeFileSync(join(fakeHome, '.yuyi', 'env'), '')
-    const host = await setup({ hub: hub.url, deviceless: true })
+    const host = await setup({ hub: hub.url, deviceless: true, credentials: { value: LAUNCH_TOKEN } })
     await vi.waitFor(() => { expect(host.service.status().connected).toBe(true) })
     expect(host.service.status().device).toBe(hostname())
   })

@@ -12,8 +12,11 @@ import YuyiRuntime from '../src/service.ts'
 import { readTask, type TaskEvent, type YuyiMessage } from '../src/core.ts'
 import * as ToolYuyi from '../src/tools/index.ts'
 import { FixtureHub } from './fixture-hub.ts'
+import { StubCredentials } from './fixture-credentials.ts'
+import { LAUNCH_TOKEN } from './env.ts'
 
-// token 经 per-agent 文件（tests/env.ts 写入）解析；环境变量不再是 token 来源。
+// token 唯一来源是 dsh 凭证库。模块顶部注入的环境变量值仅作"污染源存在证据"，
+// 不会被解析（这是 2026-08-19 跨 Agent 串用根治的硬保证）。
 process.env.YUYI_TOKEN = 'ambient-other-agent-token'
 
 const teardowns: Array<() => Promise<void>> = []
@@ -38,6 +41,11 @@ async function setupTools(hub: FixtureHub): Promise<Handle> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  // 凭证库（stub）等价于"用户在御驿设置界面录入 token 后再启动"。
+  const credentialsFiber = await ctx.plugin((child: Context) => {
+    new StubCredentials(child, { value: LAUNCH_TOKEN })
+  })
+  teardowns.push(async () => { await credentialsFiber.dispose() })
   const agentsFiber = await ctx.plugin(AgentRegistry)
   teardowns.push(async () => { await agentsFiber.dispose() })
   const yuyiFiber = await ctx.plugin(YuyiRuntime, { tokenEnv: 'YUYI_TOKEN', device: 'dsh-test-device', hub: hub.url, replyTimeoutMs: 250 })
@@ -87,6 +95,9 @@ async function startDeadService(): Promise<{
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  const credentialsFiber = await ctx.plugin((child: Context) => {
+    new StubCredentials(child, { value: LAUNCH_TOKEN })
+  })
   const agentsFiber = await ctx.plugin(AgentRegistry)
   const yuyiFiber = await ctx.plugin(YuyiRuntime, { tokenEnv: 'YUYI_TOKEN', device: 'dsh-test-device', hub: 'ws://127.0.0.1:1', replyTimeoutMs: 250 })
   const toolsFiber = await ctx.plugin({ ...ToolYuyi })
@@ -108,6 +119,7 @@ async function startDeadService(): Promise<{
     await toolsFiber.dispose()
     await yuyiFiber.dispose()
     await agentsFiber.dispose()
+    await credentialsFiber.dispose()
   }
   teardowns.push(stop)
   return { service: ctx.yuyi, execute, stop }

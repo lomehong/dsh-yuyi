@@ -1,17 +1,23 @@
 /**
-  * yuyi 服务套件的测试环境重定向。本模块必须是
-  * spec 的第一个导入：yuyi-core 在模块
-  * 载入时捕获状态目录，env 文件读取器每 fork 解析一次 `~`。
+ * yuyi 服务套件的测试环境重定向。本模块必须是
+ * spec 的第一个导入：yuyi-core 在模块
+ * 载入时捕获状态目录，env 文件读取器每 fork 解析一次 `~`。
  *
-  * - `YUYI_STATE_DIR` 把收件箱/任务存储指向每次运行的临时目录。
-  * - `HOME`/`USERPROFILE` 把固定的 `~/.yuyi/env` 读取器从开发者的
-  * 真实 agent 状态（每个 vitest fork 都是新进程，
-  * 重定向随套件消亡）。
-  * - 清除环境中遗留的 `YUYI_*` 连接变量，使"休眠"场景
-  * 不会从启动 shell 意外解析出真实 hub。
+ * - `YUYI_STATE_DIR` 把收件箱/任务存储指向每次运行的临时目录。
+ * - `HOME`/`USERPROFILE` 把固定的 `~/.yuyi/env` 读取器从开发者的
+ * 真实 agent 状态（每个 vitest fork 都是新进程，
+ * 重定向随套件消亡）。
+ * - 清除环境中遗留的 `YUYI_*` 连接变量，使"休眠"场景
+ * 不会从启动 shell 意外解析出真实 hub。
+ *
+ * 关于 token：设置界面是 dsh 唯一合规的 token 入口（service.ts 的
+ * resolveToken 只读 dsh 凭证库，对环境变量 / ~/.yuyi/env /
+ * ~/.yuyi/dsh-token 全部免疫——这是 2026-08-19 跨 Agent 串用
+ * 修复后的设计）。本测试套件仅在 dsh 凭证库层注入 token（通过
+ * `StubCredentials`），**不**经任何文件或环境变量路径。
  */
 
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -27,20 +33,5 @@ delete process.env.YUYI_HUB
 delete process.env.YUYI_TOKEN
 delete process.env.YUYI_DEVICE
 
-/* * per-agent token 文件（~/.yuyi/dsh-token，安装器写入位）的默认内容。 */
+/* * 凭证库命中时的 token 测试值。 */
 export const LAUNCH_TOKEN = 'launch-token-value'
-
-/**
- * 改写 per-agent token 文件（传 undefined 删除）。token 解析兜底只认这个
- * 文件——环境变量与共享 env 文件不再是 token 来源（跨 Agent 串用防护）。
- */
-export function writeDshToken(value: string | undefined): void {
-  const file = join(stateDir, 'dsh-token')
-  if (value === undefined) {
-    try { rmSync(file) } catch { /* 已不存在 */ }
-    return
-  }
-  writeFileSync(file, value)
-}
-
-writeDshToken(LAUNCH_TOKEN)
