@@ -14,9 +14,12 @@ import { hostname } from 'node:os'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FixtureHub } from './fixture-hub.ts'
-import { fakeHome, LAUNCH_TOKEN } from './env.ts'
+import { fakeHome, LAUNCH_TOKEN, writeDshToken } from './env.ts'
 
-process.env.YUYI_TOKEN = LAUNCH_TOKEN
+// 模拟多 Agent 设备的环境污染：安装器 opencode 分支/旧版本会把其他 Agent 的
+// token 写进用户级 YUYI_TOKEN——本套件全程带着它跑，任何连接成功且 token 不是
+// 它的用例都在证明：通用环境变量不再被用作 token 来源（跨 Agent 串用防护）。
+process.env.YUYI_TOKEN = 'ambient-other-agent-token'
 
 /* * 每测试清理：插件 fiber 与 fixture hub，按最新优先销毁。 */
 const teardowns: Array<() => Promise<void>> = []
@@ -146,8 +149,8 @@ describe('yuyi service', () => {
   })
 
   it('stays dormant when hub or token do not resolve', async () => {
-    // 已挂载的凭证接缝未命中引用时，穿透到
-    // 启动环境与 env 文件，而不是启动失败。
+    // 已挂载的凭证接缝未命中引用、per-agent 文件也无 token 时，
+    // 保持休眠而不是启动失败（也不捡环境变量里的污染物）。
     const { service } = await setup({ absentToken: true, credentials: { value: 'other-token' } })
     await vi.waitFor(() => { expect(service.status().hub).toBe('') })
     const status = service.status()
@@ -158,11 +161,17 @@ describe('yuyi service', () => {
 
   it('reports a resolved hub with a missing token distinctly', async () => {
     const hub = await startHub()
-    const { service } = await setup({ hub: hub.url, absentToken: true })
-    await vi.waitFor(() => { expect(service.status().hub).toBe(hub.url) })
-    expect(service.status().configured).toBe(false)
-    await expect(service.send({ to: 'peer', text: 'hi', mode: 'notify' }))
-      .rejects.toThrow(/hub set, token reference YUYI_ABSENT_TOKEN/)
+    // per-agent 文件也不放 token，才能构造"hub 已配置、token 缺失"。
+    writeDshToken(undefined)
+    try {
+      const { service } = await setup({ hub: hub.url, absentToken: true })
+      await vi.waitFor(() => { expect(service.status().hub).toBe(hub.url) })
+      expect(service.status().configured).toBe(false)
+      await expect(service.send({ to: 'peer', text: 'hi', mode: 'notify' }))
+        .rejects.toThrow(/hub set, token reference YUYI_ABSENT_TOKEN/)
+    } finally {
+      writeDshToken(LAUNCH_TOKEN)
+    }
   })
 
   it('fails sends with YUYI_NOT_CONNECTED while the hub is unreachable', async () => {
@@ -198,30 +207,40 @@ describe('yuyi service', () => {
     expect(hub.helloFrames[0]).toMatchObject({ device: 'dsh-test-device', token: LAUNCH_TOKEN, agentKind: 'dsh' })
   })
 
-  it('resolves the token through the credentials seam, then launch env, then env file', async () => {
+  it('resolves the token through the credentials seam, then the per-agent file; ambient sources are never used', async () => {
     const hub = await startHub()
     // 凭证接缝挂载期间优先。
-    delete process.env.YUYI_TOKEN
     const seam = await setup({ hub: hub.url, credentials: { value: 'seam-token' } })
     await vi.waitFor(() => { expect(seam.service.status().connected).toBe(true) })
     expect(hub.helloFrames.at(-1)?.token).toBe('seam-token')
     await seam.stop()
 
-    // 启动环境在无接缝时解析。
-    process.env.YUYI_TOKEN = LAUNCH_TOKEN
-    const launch = await setup({ hub: hub.url })
-    await vi.waitFor(() => { expect(launch.service.status().connected).toBe(true) })
-    expect(hub.helloFrames.at(-1)?.token).toBe(LAUNCH_TOKEN)
-    await launch.stop()
-
-    // yuyi 环境文件是最后的兜底。
-    delete process.env.YUYI_TOKEN
-    mkdirSync(join(fakeHome, '.yuyi'), { recursive: true })
-    writeFileSync(join(fakeHome, '.yuyi', 'env'), 'YUYI_TOKEN=file-token-value\n')
+    // 无接缝时回退 per-agent 文件（~/.yuyi/dsh-token，安装器写入位）。
+    // 环境变量里躺着"其他 Agent 的 token"（模块顶部的 ambient 值）也不被读取。
     const file = await setup({ hub: hub.url })
     await vi.waitFor(() => { expect(file.service.status().connected).toBe(true) })
-    expect(hub.helloFrames.at(-1)?.token).toBe('file-token-value')
-    process.env.YUYI_TOKEN = LAUNCH_TOKEN
+    expect(hub.helloFrames.at(-1)?.token).toBe(LAUNCH_TOKEN)
+    await file.stop()
+
+    // 共享 env 文件（~/.yuyi/env）里的 YUYI_TOKEN 同样不是 token 来源。
+    mkdirSync(join(fakeHome, '.yuyi'), { recursive: true })
+    writeFileSync(join(fakeHome, '.yuyi', 'env'), 'YUYI_TOKEN=shared-file-token\n')
+    const shared = await setup({ hub: hub.url })
+    await vi.waitFor(() => { expect(shared.service.status().connected).toBe(true) })
+    expect(hub.helloFrames.at(-1)?.token).toBe(LAUNCH_TOKEN)
+    await shared.stop()
+
+    // 两级来源都缺席时保持休眠——绝不落到环境变量。
+    // （"不拉起客户端"由下方 fail-inside-seam 用例以全新 hub 验证；
+    // 这里 hub 上还挂着本用例前几步的客户端，hasClient 不具判别力。）
+    writeDshToken(undefined)
+    try {
+      const dormant = await setup({ hub: hub.url })
+      await vi.waitFor(() => { expect(dormant.service.status().hub).toBe(hub.url) })
+      expect(dormant.service.status().configured).toBe(false)
+    } finally {
+      writeDshToken(LAUNCH_TOKEN)
+    }
   })
 
   it('stays dormant when token resolution fails inside the seam', async () => {

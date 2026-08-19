@@ -27,7 +27,12 @@ bundle 层挂载休眠的服务。再把 preset 行加进你的 preset，让会�
 
 ## 配置
 
-`hub`、`tokenEnv`（默认 `YUYI_TOKEN`）、`device`、`replyTimeoutMs`——写在宿主行的 `config`，或走本服务注册的 `yuyi` 用户设置命名空间（编辑即即时重连）。解析顺序：显式配置 → 启动环境（`YUYI_HUB`、`YUYI_DEVICE`、`tokenEnv` 指向的名字）→ `~/.yuyi/env`（Yuyi 安装器写的文件）；device 最终回退主机名。令牌每次连接经凭证服务解析，本插件从不存储。未配置时保持休眠：所有触达 hub 的方法以稳定 `YuyiError` 错误码失败，不静默降级。
+`hub`、`tokenEnv`（默认 `YUYI_TOKEN`）、`device`、`replyTimeoutMs`——写在宿主行的 `config`，或走本服务注册的 `yuyi` 用户设置命名空间（编辑即即时重连）。
+
+- **hub / device**：显式配置 → 启动环境（`YUYI_HUB`、`YUYI_DEVICE`）→ `~/.yuyi/env`（Yuyi 安装器写的设备级文件）；device 最终回退主机名。
+- **token**：dsh 凭证服务（网页「设置 → 御驿」录入，存 `~/.dsh/.credentials.yaml`）→ `~/.yuyi/dsh-token`（Yuyi 安装器 per-agent 写入，与 `omp-token` 同约定）。**刻意不读**通用环境变量与共享 `~/.yuyi/env`——多 Agent 设备上安装器会为其他 Agent（如 opencode）设置用户级 `YUYI_TOKEN`，读了就是跨 Agent 串用 token（hub 侧身份错配、吊销联动失效）。
+
+令牌每次连接经凭证服务解析，本插件从不存储。未配置时保持休眠：所有触达 hub 的方法以稳定 `YuyiError` 错误码失败，不静默降级。
 
 ## 仓库结构
 

@@ -55,6 +55,26 @@ export function yuyiEnv(key: string): string | undefined {
   return loadEnvFile()[key] || undefined
 }
 
+/**
+ * 读取 dsh 专属 token 文件 `~/.yuyi/dsh-token`（Yuyi 安装器 per-agent 写入，
+ * 与 ~/.yuyi/omp-token 同约定：纯文本单行）。YUYI_STATE_DIR 优先于 ~。
+ *
+ * 历史教训：token 曾回退读启动环境变量与共享 ~/.yuyi/env——多 Agent 设备上
+ * 安装器（opencode 分支 / 旧版本）设置的用户级 YUYI_TOKEN 会被 dsh 进程继承，
+ * 造成跨 Agent 串用 token（hub 侧身份错配、吊销联动失效、sign_key 主体错配）。
+ * 因此 token 的兜底只认本 Agent 专属文件；通用环境变量与共享 env 文件仅保留
+ * 给设备级配置（YUYI_HUB / YUYI_DEVICE / YUYI_YUFU_URL）。
+ */
+export function readDshTokenFile(): string | undefined {
+  const dir = process.env.YUYI_STATE_DIR ?? join(homedir(), ".yuyi")
+  try {
+    const raw = readFileSync(join(dir, "dsh-token"), "utf8").trim()
+    return raw.length > 0 ? raw : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** 测试辅助：清空缓存（进程内）。 */
 export function _clearYuyiEnvCache(): void {
   cached = undefined

@@ -12,9 +12,9 @@ import YuyiRuntime from '../src/service.ts'
 import { readTask, type TaskEvent, type YuyiMessage } from '../src/core.ts'
 import * as ToolYuyi from '../src/tools/index.ts'
 import { FixtureHub } from './fixture-hub.ts'
-import { LAUNCH_TOKEN } from './env.ts'
 
-process.env.YUYI_TOKEN = LAUNCH_TOKEN
+// token 经 per-agent 文件（tests/env.ts 写入）解析；环境变量不再是 token 来源。
+process.env.YUYI_TOKEN = 'ambient-other-agent-token'
 
 const teardowns: Array<() => Promise<void>> = []
 

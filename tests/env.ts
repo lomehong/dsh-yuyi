@@ -11,7 +11,7 @@
   * 不会从启动 shell 意外解析出真实 hub。
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -27,5 +27,20 @@ delete process.env.YUYI_HUB
 delete process.env.YUYI_TOKEN
 delete process.env.YUYI_DEVICE
 
-/* * 启动环境解析测试安装的令牌值。 */
+/* * per-agent token 文件（~/.yuyi/dsh-token，安装器写入位）的默认内容。 */
 export const LAUNCH_TOKEN = 'launch-token-value'
+
+/**
+ * 改写 per-agent token 文件（传 undefined 删除）。token 解析兜底只认这个
+ * 文件——环境变量与共享 env 文件不再是 token 来源（跨 Agent 串用防护）。
+ */
+export function writeDshToken(value: string | undefined): void {
+  const file = join(stateDir, 'dsh-token')
+  if (value === undefined) {
+    try { rmSync(file) } catch { /* 已不存在 */ }
+    return
+  }
+  writeFileSync(file, value)
+}
+
+writeDshToken(LAUNCH_TOKEN)

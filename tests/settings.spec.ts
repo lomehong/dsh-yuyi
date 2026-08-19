@@ -12,7 +12,8 @@ import YuyiRuntime from '../src/service.ts'
 import { FixtureHub } from './fixture-hub.ts'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
-process.env.YUYI_TOKEN = 'settings-token-value'
+// token 经 per-agent 文件（tests/env.ts 写入）解析；环境变量不再是 token 来源。
+process.env.YUYI_TOKEN = 'ambient-other-agent-token'
 
 const NS = settingsNamespace('yuyi')
 

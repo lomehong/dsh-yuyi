@@ -31,6 +31,7 @@ import {
   matchSession,
   newID,
   parseAddress,
+  readDshTokenFile,
   yuyiEnv,
   append as inboxAppend,
   count as inboxCount,
@@ -374,7 +375,11 @@ export default class YuyiRuntime extends TypertRemoteService {
       const hit = await credentials.resolve(credentialRef(tokenEnv))
       if (hit !== undefined) return hit.value
     }
-    return this.launchValue(tokenEnv) ?? yuyiEnv(tokenEnv)
+    // 兜底只认 dsh 专属 token 文件（安装器 per-agent 写入 ~/.yuyi/dsh-token）。
+    // 刻意不回退启动环境变量/共享 ~/.yuyi/env：多 Agent 设备上安装器为其他
+    // Agent（如 opencode）设置的用户级 YUYI_TOKEN 会被本进程继承，回退即跨
+    // Agent 串用 token——hub 侧身份错配、吊销联动失效、sign_key 主体错配。
+    return readDshTokenFile()
   }
 
   /* * 当前设置源下的设备身份；无命名时为主机名。 */
@@ -511,7 +516,8 @@ export default class YuyiRuntime extends TypertRemoteService {
     if (client === undefined || this.hubUrl.length === 0 || !this.tokenFound) {
       throw new YuyiError(
         `yuyi: not configured (hub ${this.hubUrl.length > 0 ? 'set' : 'missing'}, token reference ${this.settingsSource().tokenEnv});`
-        + ' set the "hub" config or YUYI_HUB, and store the token through the credentials service or the environment',
+        + ' set the "hub" config or YUYI_HUB, and store the token through the credentials service'
+        + ' or the per-agent token file (~/.yuyi/dsh-token)',
         'YUYI_NOT_CONFIGURED',
       )
     }
