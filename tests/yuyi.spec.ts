@@ -10,11 +10,11 @@ import YuyiRuntime, { YuyiError } from '../src/service.ts'
 import { deliverySummary, formatIncoming } from '../src/delivery.ts'
 import * as CoreFacade from '../src/core.ts'
 import { hostname } from 'node:os'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FixtureHub } from './fixture-hub.ts'
 import { StubCredentials } from './fixture-credentials.ts'
-import { fakeHome, LAUNCH_TOKEN } from './env.ts'
+import { fakeHome, LAUNCH_TOKEN, stateDir } from './env.ts'
 
 // 模拟多 Agent 设备的污染：通用环境变量 + 共享 ~/.yuyi/env + 安装器写的
 // ~/.yuyi/dsh-token 全部被设计堵在门外（token 唯一来源是 dsh 凭证库）。
@@ -207,6 +207,28 @@ describe('yuyi service', () => {
       || f.token === 'ambient-file-other-agent-token'
       || f.token === 'ambient-env-file-other-agent-token')).toBeUndefined()
     await ambient.stop()
+  })
+
+  it('falls back to ~/.yuyi/dsh-token when the credentials seam is empty; ambient env cannot hijack', async () => {
+    const hub = await startHub()
+    // 文件路径走 dsh 专属 token（与 ~/.yuyi/omp-token 同约定）。本用例让
+    // "红框文件"存在、凭证库没设——验证运行时只读这一个文件拿 token。
+    // 进程 env 和 ~/.yuyi/env 里同时躺着 ambient 污染，验证它们不会被拾起。
+    const dshTokenFile = join(stateDir, 'dsh-token')
+    writeFileSync(dshTokenFile, 'dsh-installer-token-value')
+
+    try {
+      const fallback = await setup({ hub: hub.url })
+      await vi.waitFor(() => { expect(fallback.service.status().connected).toBe(true) })
+      // 命中文件 token，**不是** ambient 三个里任何一个
+      expect(hub.helloFrames.at(-1)?.token).toBe('dsh-installer-token-value')
+      expect(hub.helloFrames.find(f => f.token === 'ambient-other-agent-token'
+        || f.token === 'ambient-file-other-agent-token'
+        || f.token === 'ambient-env-file-other-agent-token')).toBeUndefined()
+      await fallback.stop()
+    } finally {
+      try { rmSync(dshTokenFile) } catch { /* 已不存在 */ }
+    }
   })
 
   it('stays dormant when token resolution fails inside the seam', async () => {

@@ -1,12 +1,16 @@
 /**
- * ~/.yuyi/env 读取（统一智能体名称/验签等 YUYI_* 配置的文件回退）。
+ * dsh 适配器运行时的 YUYI_* 配置读取器（与 omp/opencode/codex/mavis 同地对接）。
  *
- * 背景：安装脚本把 YUYI_HUB / YUYI_DEVICE / YUYI_YUFU_URL / YUYI_NAME 写入
- * shell profile（.bashrc / 用户级 env），但非登录 shell / 服务方式启动的
- * Agent 进程可能不加载这些 env——导致 YUYI_YUFU_URL（验签必需）缺失。
- * 根治：安装脚本同时写 ~/.yuyi/env（KEY=VALUE，chmod 600），插件运行时
- * 读取该文件回退（process.env.X ?? readYuyiEnv("X")），不依赖进程 env
- * 加载机制，Windows / Linux 通吃。
+ * 关键：`yuyiEnv`（从 @yuyi/core 导出）优先读进程 env，是跨 Agent 串用根因——
+ * 安装器 opencode 分支（b7bf367 后）会把 opencode 自己的 token 写进用户级
+ * YUYI_TOKEN，dsh 进程继承后被 yuyiEnv 误读为"自己的 token"。本文件**不**
+ * 重新导出 yuyiEnv（删去避免任何回归）。运行时只用 yuyiEnvToken（见下）。
+ *
+ * 仍保留 ~/.yuyi/env 文件读取能力（loadYuyiEnvFile / yuyiEnvFile）——供
+ * 设备级 YUYI_HUB / YUYI_DEVICE / YUYI_YUFU_URL 的读取（这些 KEY 写在文件里
+ * 是公共安全的，不会被任何一个 Agent 独占）。但 YUYI_TOKEN 这一行**永远**
+ * 不从该文件读——多 Agent 设备上 opencode 装过的机器即便在该文件残留部分
+ * token 路径，dsh 端也视而不见。
  */
 
 import { homedir } from "node:os"
@@ -48,36 +52,31 @@ function loadEnvFile(): Record<string, string> {
   return out
 }
 
-/** 读 YUYI_* 配置：优先进程 env，回退 ~/.yuyi/env 文件。 */
-export function yuyiEnv(key: string): string | undefined {
-  const fromProcess = process.env[key]
-  if (fromProcess !== undefined && fromProcess !== "") return fromProcess
-  return loadEnvFile()[key] || undefined
+/** 设备级 YUYI_* 配置（仅 ~/.yuyi/env 文件；不读进程 env）。 */
+export function yuyiEnvFile(): Record<string, string> {
+  return loadEnvFile()
 }
 
 /**
- * 探测安装器写入的 dsh token 文件 `~/.yuyi/dsh-token`（Yuyi 安装器 per-agent
- * 写入，与 ~/.yuyi/omp-token 同约定：纯文本单行）。YUYI_STATE_DIR 优先于 ~。
+ * dsh 适配器 token 解析（与 omp/opencode/codex/mavis 一致：每 Agent 各自专属）。
  *
- * 注意：这是**设置界面探测用**的工具，仅供客户端代码在用户设置界面识别
- * "这台机器上 yuyi 安装器已经为 dsh 写过配置"——提示用户把该 token 写入
- * dsh 凭证库。**运行时（service.ts 的 resolveToken）绝不能调用本函数**。
- * 任何一个版本如果把这份文件当作连接 token 的"兜底来源"，都会重新引入
- * 跨 Agent 串用风险：
+ * 唯一来源：`~/.yuyi/dsh-token` 文件（Yuyi 安装器 dsh 分支写入，与
+ * `~/.yuyi/omp-token` 同约定：纯文本单行）。YUYI_STATE_DIR 优先于 ~。
  *
- * - 安装器 opencode 分支（b7bf367）/ 旧版本会把 opencode 自己的 token 写进
- *   用户级 YUYI_TOKEN；任何继承该 env 的 dsh 进程如果再回退到 dsh-token
- *   文件，就会把"其他 Agent 的 token"路径合法化。
- * - 进程继承的环境变量本身不可控（用户级 / shell profile / pnpm 的
- *   no-fallback 之类外部因素组合）。
- * - 文件存在 ≠ 用户意图："装好就用"是安装器的体验假设，但 dsh 端应该是
- *   设置界面经用户确认才录入凭证库（设置界面录入 = 用户意图；安装器写
- *   的文件 = 机器的局部状态）。
+ * 为什么不读 ~/.yuyi/env 的 YUYI_TOKEN：安装器只把 YUYI_HUB / YUYI_DEVICE /
+ * YUYI_YUFU_URL 写进该文件（见 install.ps1 末段），从不写 YUYI_TOKEN——
+ * 这是多 Agent 设备上 per-agent 文件与共享 env 文件的边界。一旦从 env 文件
+ * 读 YUYI_TOKEN，opencode 装过的机器上若有路径残留就会污染（即多 Agent
+ * 设备上这种残留实际存在，是污染根因）。
  *
- * 唯一合规的 token 源：`ctx.credentials.resolve(credentialRef('YUYI_TOKEN'))`。
- * 见 service.ts 的 resolveToken 注释。
+ * 为什么不读进程 env：opencode 安装器把 opencode 自己的 token 写进用户级
+ * YUYI_TOKEN（b7bf367 后），任何继承该 env 的 dsh 进程都会读到这个非
+ * dsh 自己的 token。是同一类污染源。
+ *
+ * 设备级共享配置（YUYI_HUB / YUYI_DEVICE / YUYI_YUFU_URL）走 yuyiEnvFile
+ * 即可，与 token 是不同关切，分开访问。
  */
-export function peekInstallerDshToken(): string | undefined {
+export function yuyiEnvToken(): string | undefined {
   const dir = process.env.YUYI_STATE_DIR ?? join(homedir(), ".yuyi")
   try {
     const raw = readFileSync(join(dir, "dsh-token"), "utf8").trim()

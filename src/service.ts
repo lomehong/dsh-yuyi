@@ -31,7 +31,8 @@ import {
   matchSession,
   newID,
   parseAddress,
-  yuyiEnv,
+  yuyiEnvFile,
+  yuyiEnvToken,
   append as inboxAppend,
   count as inboxCount,
   take as inboxTake,
@@ -370,20 +371,23 @@ export default class YuyiRuntime extends TypertRemoteService {
   private async resolveToken(): Promise<string | undefined> {
     const tokenEnv = this.settingsSource().tokenEnv
     const credentials = this.ctx.get('credentials')
-    if (credentials === undefined) {
-      this.ctx.logger.warn('yuyi: credentials service not available; service will stay dormant')
-      return undefined
+    if (credentials !== undefined) {
+      const hit = await credentials.resolve(credentialRef(tokenEnv))
+      if (hit !== undefined) return hit.value
     }
-    const hit = await credentials.resolve(credentialRef(tokenEnv))
-    if (hit === undefined) return undefined
-    return hit.value
+    // 凭证库未录入（或服务未挂载）。回退到 dsh 专属的设备级路径：
+    // ~/.yuyi/dsh-token 文件（Yuyi 安装器 dsh 分支必然写过的 per-agent 文件，
+    // 与 ~/.yuyi/omp-token 同约定）。**绝不读**进程 env：opencode 装过的机器上
+    // 进程 YUYI_TOKEN 会被其分支的 b7bf367 后用户级 env 占据，读了就是
+    // 借用其他 Agent 身份（hub 侧身份错配、吊销联动失效）。
+    return yuyiEnvToken()
   }
 
   /* * 当前设置源下的设备身份；无命名时为主机名。 */
   private resolveDevice(): string {
     return this.settingsSource().device
       ?? this.launchValue('YUYI_DEVICE')
-      ?? yuyiEnv('YUYI_DEVICE')
+      ?? yuyiEnvFile().YUYI_DEVICE
       ?? hostname()
   }
 
@@ -410,7 +414,7 @@ export default class YuyiRuntime extends TypertRemoteService {
 
   private async start(): Promise<void> {
     this.resolvedDevice = this.resolveDevice()
-    const hub = this.settingsSource().hub ?? this.launchValue('YUYI_HUB') ?? yuyiEnv('YUYI_HUB') ?? ''
+    const hub = this.settingsSource().hub ?? this.launchValue('YUYI_HUB') ?? yuyiEnvFile().YUYI_HUB ?? ''
     const token = await this.resolveToken().catch((error: unknown) => {
       this.ctx.logger.warn('yuyi: token resolution failed', error)
       return undefined
