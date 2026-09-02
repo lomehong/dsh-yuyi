@@ -56,7 +56,7 @@ interface YuyiRemoteFace {
 }
 
 /* * 所需服务：插槽、字典、设置传输与类型化 Remote。 */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.credentials', 'settingsScope']
 
 /**
   * 客户端插件主体：挂载 Remote 贡献，注册
@@ -107,25 +107,28 @@ export function apply(ctx: ClientContext): void {
   // YUYI_TOKEN）。宿主凭证库（.credentials.yaml）是 dsh 适配器的专属
   // 存储——不与其他 Agent 共享环境变量；凭证写入经 `credentials/updated`
   // 转发回来驱动区块徽标刷新，宿主侧同名事件触发即时重连。
-  const credentials = ctx.connection.api.credentials
+  const credentials = ctx.remote.credentials
   const tokenRef = (): string => scope.getSnapshot().value?.tokenEnv ?? 'YUYI_TOKEN'
   const tokenStore: YuyiTokenStore = {
     async read() {
       const ref = tokenRef()
-      const response = await credentials.describe({ refs: [ref] })
-      if (!response.result.ok) throw new Error(response.result.error.message ?? 'credentials describe failed')
-      return response.result.value.credentials[ref] ?? { configured: false, writable: true }
+      const response = await credentials.describe([ref])
+      if (!response.ok) throw new Error(response.error.message ?? 'credentials describe failed')
+      return response.value[ref] ?? { configured: false, writable: true }
     },
     async save(value) {
-      const response = await credentials.set({ ref: tokenRef(), value })
-      if (!response.result.ok) throw new Error(response.result.error.message ?? 'credentials set failed')
+      const response = await credentials.set(tokenRef(), value)
+      if (!response.ok) throw new Error(response.error.message ?? 'credentials set failed')
     },
     async clear() {
-      const response = await credentials.unset({ ref: tokenRef() })
-      if (!response.result.ok) throw new Error(response.result.error.message ?? 'credentials unset failed')
+      const response = await credentials.unset(tokenRef())
+      if (!response.ok) throw new Error(response.error.message ?? 'credentials unset failed')
     },
     onChange(listener) {
-      return ctx.remote.$on('credentials/updated', (ref: unknown) => { if (String(ref) === tokenRef()) listener() })
+      // alpha.3 起凭证事件名更换：rc.2 是 'credentials/updated'，alpha.3 用
+      // 'credentials/reference-updated'（ref 参数为 CredentialRef 类型），
+      // 与服务端 service.ts 的 ctx.on('credentials/reference-updated', ...) 对齐。
+      return ctx.remote.$on('credentials/reference-updated', (ref: unknown) => { if (String(ref) === tokenRef()) listener() })
     },
   }
   const sectionT = ctx.locale.bind(SECTION_NS)

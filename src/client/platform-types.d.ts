@@ -30,10 +30,18 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
     remote: {
       $mount(contribution: unknown): Promise<() => void>
       $on(event: string, listener: (...args: never[]) => void): () => void
+      // alpha.3 路径（参考 dsh-client-ui-settings-models.storeCredential 等同名实现）：
+      // 走 typert remote 的 `credentials` 命名空间，方法直接返回 WireResult，无包装 .result。
+      credentials: {
+        describe(refs: string[]): Promise<WireResult<Record<string, { configured: boolean; writable: boolean; source?: string }>>>
+        set(ref: string, value: string): Promise<WireResult<unknown>>
+        unset(ref: string): Promise<WireResult<unknown>>
+      }
       [namespace: string]: unknown
     }
     connection: {
       api: {
+        // rc.2 路径（已迁到 remote.credentials，保留以备回滚）。
         credentials: {
           describe(args: { refs: string[] }): Promise<{ result: WireResult<{ credentials: Record<string, { configured: boolean; writable: boolean } | undefined> }> }>
           set(args: { ref: string; value: string }): Promise<{ result: WireResult<unknown> }>

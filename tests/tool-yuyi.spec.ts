@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -64,11 +64,11 @@ async function setupTools(hub: FixtureHub): Promise<Handle> {
   const unregister = ctx.agents.register(agent)
   teardowns.push(async () => { unregister() })
   const execute = async (name: string, args: Record<string, unknown>, caller?: Agent): Promise<unknown> => {
-    const exec: Partial<ToolExecution> = { signal, callId: CallId(`call-${String(callCounter += 1)}`) }
+    const exec: Partial<ToolExecution> = { signal, callId: ToolCallId(`call-${String(callCounter += 1)}`) }
     void exec
     const result = await ctx.tools.execute({
       signal,
-      callId: CallId(`call-${String(callCounter += 1)}`),
+      callId: ToolCallId(`call-${String(callCounter += 1)}`),
       name,
       arguments: args,
       ...(caller !== undefined || agent !== undefined ? { agent: caller ?? agent } : {}),
@@ -109,7 +109,7 @@ async function startDeadService(): Promise<{
   const unregister = ctx.agents.register(agent)
   const execute = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const result = await ctx.tools.execute({
-      signal, callId: CallId(`call-dead-${String(callCounter += 1)}`), name, arguments: args, agent,
+      signal, callId: ToolCallId(`call-dead-${String(callCounter += 1)}`), name, arguments: args, agent,
     })
     if (result.isError) throw new Error(`tool ${name} failed: ${JSON.stringify(result.error)}`)
     return result.value as Record<string, unknown>
@@ -155,7 +155,7 @@ describe('messaging tools', () => {
     await execute('yuyi_register', { name: 'coder-a', title: 'Main' })
     expect(ctx.yuyi.aliasOf(SessionId('sess-tool-a'))).toBe('coder-a')
     const result = await ctx.tools.execute({
-      signal, callId: CallId('call-x'), name: 'yuyi_register', arguments: { name: 'other' },
+      signal, callId: ToolCallId('call-x'), name: 'yuyi_register', arguments: { name: 'other' },
     })
     expect(result.isError).toBe(true)
   })
@@ -410,11 +410,11 @@ describe('optional-branch coverage: task identity and target fallbacks', () => {
     const hub = await startHub()
     const { ctx } = await setupTools(hub)
     const result = await ctx.tools.execute({
-      signal, callId: CallId('call-na1'), name: 'yuyi_task_attach', arguments: { task_id: 'task-na' },
+      signal, callId: ToolCallId('call-na1'), name: 'yuyi_task_attach', arguments: { task_id: 'task-na' },
     })
     expect(JSON.stringify(result.error)).toContain('session-scoped')
     const cont = await ctx.tools.execute({
-      signal, callId: CallId('call-na2'), name: 'yuyi_task_continue', arguments: { task_id: 'task-na', message: 'x' },
+      signal, callId: ToolCallId('call-na2'), name: 'yuyi_task_continue', arguments: { task_id: 'task-na', message: 'x' },
     })
     expect(cont.isError).toBe(true)
   })
@@ -423,10 +423,10 @@ describe('optional-branch coverage: task identity and target fallbacks', () => {
     const hub = await startHub()
     const { ctx } = await setupTools(hub)
     await ctx.tools.execute({
-      signal, callId: CallId('call-au1'), name: 'yuyi_task_summary', arguments: { task_id: 'task-au', text: 's' },
+      signal, callId: ToolCallId('call-au1'), name: 'yuyi_task_summary', arguments: { task_id: 'task-au', text: 's' },
     })
     await ctx.tools.execute({
-      signal, callId: CallId('call-au2'), name: 'yuyi_task_verify',
+      signal, callId: ToolCallId('call-au2'), name: 'yuyi_task_verify',
       arguments: { task_id: 'task-au', criterion_index: 0, passed: false, evidence: 'none' },
     })
     const events = readTask('task-au').events
@@ -438,7 +438,7 @@ describe('optional-branch coverage: task identity and target fallbacks', () => {
     bare.bareWelcome = true
     const { ctx: bareCtx } = await setupTools(bare)
     await bareCtx.tools.execute({
-      signal, callId: CallId('call-au3'), name: 'yuyi_task_summary', arguments: { task_id: 'task-au2', text: 's' },
+      signal, callId: ToolCallId('call-au3'), name: 'yuyi_task_summary', arguments: { task_id: 'task-au2', text: 's' },
     })
     expect(readTask('task-au2').events[0]).toMatchObject({ kind: 'summary', by: 'dsh' })
   })
@@ -593,7 +593,7 @@ describe('optional-branch coverage: complementary sides', () => {
     hub.sendHandlerSessionID = 'sess-remote'
     const { ctx, execute } = await setupTools(hub)
     const result = await ctx.tools.execute({
-      signal, callId: CallId('call-noagent'), name: 'yuyi_send', arguments: { to: 'reviewer', text: 'anonymous' },
+      signal, callId: ToolCallId('call-noagent'), name: 'yuyi_send', arguments: { to: 'reviewer', text: 'anonymous' },
     })
     expect(result.isError).toBe(false)
     const handled = await execute('yuyi_send', { to: 'reviewer', text: 'handled' }) as { handlerSessionID?: string }

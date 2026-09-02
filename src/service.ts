@@ -20,7 +20,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+// 纯类型导入：载入 @deepseek-ai/dsh-settings 对 Context 的 `.settings` 增补。
+import type {} from '@deepseek-ai/dsh-settings'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -68,8 +69,12 @@ declare module '@deepseek-ai/cordis' {
 /* * 发送并等回复方法失败前的默认等待时长。 */
 const DEFAULT_REPLY_TIMEOUT_MS = 300_000
 
-/* * 本接缝注册的设置命名空间；用户编辑即时落地为重连。 */
-const SETTINGS_NAMESPACE = settingsNamespace('yuyi')
+/* * 本接缝注册的设置命名空间；用户编辑即时落地为重连。
+  * alpha.2 起移除 settingsNamespace() 品牌函数（仅 types 层的模板字面量校验）：
+  * 裸字面量在 installSection 入参位置由 `SettingsNamespaceInput<Namespace>` 约束，
+  * 这里 cast 为 SettingsNamespace 以匹配 server 侧用工具（如测试与断言）的一致语义。
+  * 参考上游 dsh-agent-default-model 的用法。 */
+const SETTINGS_NAMESPACE = 'yuyi'
 
 /* * 未命中任何 roster 会话的消息的收件箱键（设备级停靠）。 */
 const DEVICE_INBOX_KEY = 'device'
@@ -136,13 +141,19 @@ export default class YuyiRuntime extends TypertRemoteService {
     // 用户设置文档拥有组合条目之上的可编辑层：
     // 条目之上：每次提交的变更——以及设置服务的挂载或
     // 卸载——都会以新解析的值重启 hub 连接。
-    installSettingsSection(ctx, SETTINGS_NAMESPACE, YuyiRuntime.Config, config, {
-      setSource: (source) => { this.settingsSource = source },
-      onChange: () => { void this.reconnect() },
+    // alpha.2 起模块级 installSettingsSection() 移除：经 inject(['settings'])
+    // 取提供方，调用 SettingsProvider.installSection()（hooks 形状不变，
+    // 参考上游 dsh-agent-default-model 的用法）。
+    ctx.inject(['settings'], (sctx) => {
+      sctx.settings.installSection(ctx, SETTINGS_NAMESPACE, YuyiRuntime.Config, config, {
+        setSource: (source) => { this.settingsSource = source },
+        onChange: () => { void this.reconnect() },
+      })
     })
     // 令牌是本适配器（dsh）的专属凭证：设置页经凭证域写入/清除后，
-    // 凭此事件即时重连，不等下一次设置变更。
-    ctx.on('credentials/updated', (ref: unknown) => {
+    // 凭此事件即时重连，不等下一次设置变更。alpha.x 起该事件更名
+    // credentials/reference-updated（ref 参数为 CredentialRef，此处转字符串比较）。
+    ctx.on('credentials/reference-updated', (ref) => {
       if (String(ref) === this.settingsSource().tokenEnv) void this.reconnect()
     })
     ctx.effect(() => () => {

@@ -1,4 +1,7 @@
 verifyDepsBeforeRun: false
+# 单包即自身：声明为唯一的 workspace 成员，pnpm install 才不报 packages 缺失。
+packages:
+  - '.'
 # @deepseek-ai/dsh-session 的 peer 依赖 dsh-type-meta，上游尚未发布；
 # 该别名把空位垫在已发布的纯类型包上，解析得以完成。dsh-yuyi 不导入它。
 overrides:

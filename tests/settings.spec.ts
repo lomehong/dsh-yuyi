@@ -10,12 +10,12 @@ import { join } from 'node:path'
 import YuyiRuntime from '../src/service.ts'
 import { FixtureHub } from './fixture-hub.ts'
 import { StubCredentials } from './fixture-credentials.ts'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 // token 唯一来源是 dsh 凭证库。环境变量里再写一个 ambient 不会改变什么。
 process.env.YUYI_TOKEN = 'ambient-other-agent-token'
 
-const NS = settingsNamespace('yuyi')
+// alpha.2 起 settingsNamespace() 移除：裸字面量由 SettingsNamespaceInput 约束。
+const NS = 'yuyi'
 
 /* * 每测试清理：插件 fiber 与 fixture hub，按最新优先销毁。 */
 const teardowns: Array<() => Promise<void>> = []
