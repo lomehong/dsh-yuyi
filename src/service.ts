@@ -156,6 +156,23 @@ export default class YuyiRuntime extends TypertRemoteService {
     ctx.on('credentials/reference-updated', (ref) => {
       if (String(ref) === this.settingsSource().tokenEnv) void this.reconnect()
     })
+    // Roster 跟随 live agent 集合自动同步：每个 announce 的 opencode session
+    // 立即进 roster（不带 alias——让 yuyi_register 显式接管别名），使 hub 侧的
+    // findTargets 在跨设备广播/会话 ID 寻址时能命中本进程所有 live session，
+    // 不再依赖用户手工 yuyi_register。
+    ctx.on('agent/created', (event: { agent: Agent }) => {
+      const agent = event.agent
+      if (this.roster.has(agent.id)) return
+      this.roster.set(agent.id, {
+        sessionId: agent.id,
+        title: '',
+        directory: '',
+      })
+      this.pushRoster()
+    })
+    ctx.on('agent/disposed', (event: { agent: Agent }) => {
+      if (this.roster.delete(event.agent.id)) this.pushRoster()
+    })
     ctx.effect(() => () => {
       this.disposed = true
       this.stop()
@@ -470,6 +487,12 @@ export default class YuyiRuntime extends TypertRemoteService {
     // 其 roster 天然保留。
     this.client.updateRoster(this.currentRosterSessions())
     this.client.start()
+    // 同步接管已有的 live agent：构造器的 agent/created 监听器只接未来事件，
+    // 本进程早于本插件启动的 opencode session（典型：dsh 启动后用户已打开的 GUI
+    // session）已经被 AgentRegistry 持有但我们没机会看到 created 事件——
+    // 直接 list 一遍把现有 live agent 全部纳入 roster，唤醒路径才不会因为
+    // "插件启动晚于 session 创建" 而找不到目标。
+    this.syncRosterFromLiveAgents()
   }
 
   private stop(): void {
@@ -554,17 +577,47 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   private findByTarget(target: string): YuyiRosterEntry | undefined {
+    // 1. 显式 roster 匹配（sessionID / alias）。
     for (const entry of this.roster.values()) {
       if (matchSession(this.toRosterSession(entry), target)) return entry
     }
-    // 统一智能体名称寻址（2026-08-14 定案）：御符权威 agent_name 是唯一
-    // 路由身份——Hub 不注册适配器自报别名，agent 级命中只保证「投到本
-    // 连接」，由端侧分发。这里把权威名投递分发给最早注册的主会话。
+    // 2. AgentName 兜底（统一智能体名称寻址，2026-08-14 定案）：
+    //    Hub 权威 agent_name 是唯一路由身份；用户不手工 yuyi_register 也能唤醒。
+    //    优先匹配有别名指向该 agentName 的 entry（避免覆盖显式语义），其次任意 live。
     const agentName = this.client?.agentName
-    if (agentName !== undefined && agentName.toLowerCase() === target.toLowerCase()) {
-      return this.roster.values().next().value
+    if (target.length > 0 && agentName !== undefined && agentName.length > 0
+        && agentName.toLowerCase() === target.toLowerCase()) {
+      const live = this.pickAnyLiveSession()
+      if (live !== undefined) return live
     }
     return undefined
+  }
+
+  /**
+    * 从 ctx.agents 动态挑一个 live 会话作为 wake 兜底目标。优先 idle 以避免
+    * 与正在跑的 turn 抢上下文；其次任意 live；无 live 返回 undefined 让上层
+    * 落 inbox。
+    * 不写回 roster（避免污染显式 yuyi_register 状态），但保证返回 entry 与
+    * 后续 wake 路径期待的形状一致（sessionId 可在 ctx.agents.get 命中）。
+    */
+  private pickAnyLiveSession(): YuyiRosterEntry | undefined {
+    const agents = this.ctx.agents.list()
+    if (agents.length === 0) return undefined
+    let firstIdle: YuyiRosterEntry | undefined
+    let firstAny: YuyiRosterEntry | undefined
+    for (const agent of agents) {
+      const entry: YuyiRosterEntry = {
+        sessionId: agent.id,
+        title: '',
+        directory: '',
+      }
+      if (firstAny === undefined) firstAny = entry
+      if (agent.status === 'idle') {
+        firstIdle = entry
+        break
+      }
+    }
+    return firstIdle ?? firstAny
   }
 
   private readonly handleDeliver = (message: YuyiMessage): Promise<{ ok: boolean; detail?: string; handlerSessionID?: string }> =>
@@ -584,9 +637,21 @@ export default class YuyiRuntime extends TypertRemoteService {
         return { ok: true, detail: 'consumed by expect-reply waiter' }
       }
     }
-    if (message.to.target === '*' && message.from.device === this.resolvedDevice) {
-      this.emitDelivered(message, 'echo-dropped')
-      return { ok: true, detail: 'own-device broadcast echo dropped' }
+    if (message.to.target === '*') {
+      if (message.from.device === this.resolvedDevice) {
+        // 本设备回声：丢。
+        this.emitDelivered(message, 'echo-dropped')
+        return { ok: true, detail: 'own-device broadcast echo dropped' }
+      }
+      // 跨设备广播：兜底为「唤醒任意 live session」。findByTarget('*') 永远不命中，
+      // 之前会直接落 device inbox——跨设备广播就此失效。现在按 live 兜底唤醒。
+      const liveEntry = this.pickAnyLiveSession()
+      if (liveEntry !== undefined) {
+        return this.deliverToEntry(message, liveEntry)
+      }
+      inboxAppend(DEVICE_INBOX_KEY, message)
+      this.emitDelivered(message, 'device-inbox')
+      return { ok: true, detail: 'cross-device broadcast but no live session; parked' }
     }
     const entry = this.findByTarget(message.to.target)
     if (entry === undefined) {
@@ -594,6 +659,16 @@ export default class YuyiRuntime extends TypertRemoteService {
       this.emitDelivered(message, 'device-inbox')
       return { ok: true, detail: 'no local roster match; parked in device inbox' }
     }
+    return this.deliverToEntry(message, entry)
+  }
+
+  /**
+    * 向一个 entry 投递消息：mail 入箱；notify 走 agent.followup（idle）/ steer（running）。
+    * entry.sessionId 不必在 roster 里显式注册——只要 ctx.agents.get 命中就行
+    * （agentName 兜底 + 跨设备 * 兜底都可能返回这种 live-only entry）。
+    * 唤醒后的 autoResult / autoAcknowledge 沿用既有逻辑。
+    */
+  private deliverToEntry(message: YuyiMessage, entry: YuyiRosterEntry): { ok: boolean; detail?: string; handlerSessionID?: string } {
     if (message.mode === 'mail') {
       inboxAppend(entry.sessionId, message)
       this.emitDelivered(message, 'session-inbox', entry.sessionId)
@@ -696,6 +771,27 @@ export default class YuyiRuntime extends TypertRemoteService {
   /* * 当前 roster 的协议形态（推送与种入新客户端共用）。 */
   private currentRosterSessions(): RosterSession[] {
     return [...this.roster.values()].map(entry => this.toRosterSession(entry))
+  }
+
+  /**
+    * 启动时把当前进程已存在的 live agent 一次性纳入 roster。构造器订阅的
+    * agent/created 只接未来事件，启动时已经创建的 opencode session 会漏——
+    * 直接 list() 一遍补齐。
+    */
+  private syncRosterFromLiveAgents(): void {
+    const agents = this.ctx.agents.list()
+    if (agents.length === 0) return
+    let changed = false
+    for (const agent of agents) {
+      if (this.roster.has(agent.id)) continue
+      this.roster.set(agent.id, {
+        sessionId: agent.id,
+        title: '',
+        directory: '',
+      })
+      changed = true
+    }
+    if (changed) this.pushRoster()
   }
 
   private pushRoster(): void {

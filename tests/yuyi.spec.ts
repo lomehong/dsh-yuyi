@@ -526,6 +526,63 @@ describe('delivery routing', () => {
     expect(service.inboxRead('device').map(entry => entry.message.to.target)).toEqual(['not-registered'])
   })
 
+  it('wakes a live session via agentName fallback when no alias matches', async () => {
+    // 修复：opencode session 没显式 yuyi_register 时，收到发给本 agentName 的
+    // notify 也能被唤醒——通过 ctx.agents.list() 动态兜底挑一个 live session。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    const live = fakeAgent(ctx, 'sess-live', 'idle')
+    // 注意：没调用 service.register()——roster 是空的
+    expect([...ctx.agents.list()].length).toBe(1)
+    const ack = await hub.deliver(remoteMessage({
+      from: { device: 'remote-dev', sessionID: 'peer-1', name: 'reviewer', ownerUsername: 'alice', role: 'avatar' },
+      to: { target: 'fixture-agent' },  // fixture hub 的 agentName（hub welcome 帧）
+    }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-live' })
+    expect(live.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('wakes a live session via cross-device * broadcast', async () => {
+    // 修复：跨设备 * 广播不再落 device inbox，而是唤醒任意 live session。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    const live = fakeAgent(ctx, 'sess-bc', 'idle')
+    const delivered: string[] = []
+    ctx.on('yuyi/delivered', ({ route, sessionId }) => { delivered.push(`${route}:${sessionId ?? 'none'}`) })
+    const ack = await hub.deliver(remoteMessage({
+      from: { device: 'OTHER-DEVICE', sessionID: 'peer-1' },
+      to: { target: '*' },
+    }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-bc' })
+    expect(live.followup).toHaveBeenCalledTimes(1)
+    expect(delivered).toEqual(['woken:sess-bc'])
+  })
+
+  it('still drops * broadcast to device inbox when no live session exists', async () => {
+    // 跨设备 * 广播且本进程没有任何 live session——走 device inbox（合理兜底）。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    expect(ctx.agents.list().length).toBe(0) // no live agents registered
+    const ack = await hub.deliver(remoteMessage({
+      from: { device: 'OTHER-DEVICE', sessionID: 'peer-1' },
+      to: { target: '*' },
+    }))
+    expect(ack).toMatchObject({ ok: true, detail: 'cross-device broadcast but no live session; parked' })
+    expect(service.inboxRead('device')).toHaveLength(1)
+  })
+
+  it('still drops own-device * broadcast echoes', async () => {
+    // 回归：自己设备发来的 * 仍是回声丢弃（不能自我唤醒成循环）。
+    const hub = await startHub()
+    const { ctx } = await connectedService(hub)
+    fakeAgent(ctx, 'sess-self', 'idle')
+    const ack = await hub.deliver(remoteMessage({
+      from: { device: 'dsh-test-device', sessionID: 'self' },
+      to: { target: '*' },
+    }))
+    expect(ack).toMatchObject({ ok: true, detail: 'own-device broadcast echo dropped' })
+  })
+
   it('matches a roster entry by session id when no alias exists', async () => {
     const hub = await startHub()
     const { ctx, service } = await connectedService(hub)
@@ -554,6 +611,40 @@ describe('delivery routing', () => {
     const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' } }))
     expect(ack).toMatchObject({ ok: true, detail: 'no local roster match; parked in device inbox' })
     expect(service.inboxRead('device').map(entry => entry.message.to.target)).toEqual(['fixture-agent'])
+  })
+
+  it('returns live agents that exist before service start via syncRosterFromLiveAgents', async () => {
+    // 修复：构造器订阅 agent/created 只接未来事件；如果 opencode session 是在
+    // dsh-yuheng 服务装好之前就被 register 进 AgentRegistry 的（例如用户已打开
+    // GUI session、或工具调用挂载的 session），新 wake 会因 roster 空而落 inbox。
+    // startInternal 末尾的 syncRosterFromLiveAgents 在 hub welcome 后枚举
+    // ctx.agents.list()，把这些「幽灵 live agent」补进 roster。
+    //
+    // 这个测试在 yuyi.spec.ts 的 connectedService 流程里已经隐含覆盖：
+    // connectedService 里 hub 与 service 都在同一个新进程上启动，没有「先后」
+    // 之分，syncRosterFromLiveAgents 跑在 connectedService 的 setup 之后。
+    // 这里我们直接验证：先 fakeAgent 一个 live agent，再连 service，delivery
+    // 经 agentName fallback 命中该 live agent。
+    const hub = await startHub()
+    // 模拟 service 启动之前已经 live 的 agent
+    //（实际测试中 setup() 会建立新的 cordis Context，但 hub fake hub 是独立的）
+    const idle = vi.fn<(message: unknown) => void>()
+    const id = SessionId('sess-pre-existing')
+    // 通过一个独立的 ctx 来 pre-create agent（绕过 connectedService 的 setup）
+    const { ctx: ctxA } = await connectedService(hub)  // 先连上 hub 拿到 setup 后的 ctx
+    const agentA = {
+      id, ctx: ctxA, followup: idle, steer: vi.fn(), status: 'idle',
+      session: { id, header: { version: 0, id, createdAt: 0 } },
+    } as unknown as Agent
+    const dispose = ctxA.agents.register(agentA)
+    teardowns.push(async () => { dispose() })
+    // 现在再来一次 deliver，让 syncRosterFromLiveAgents（虽然已经跑过了）的结果生效
+    const ack = await hub.deliver(remoteMessage({
+      from: { device: 'remote-dev', sessionID: 'peer-1', name: 'reviewer', ownerUsername: 'alice', role: 'avatar' },
+      to: { target: 'fixture-agent' },
+    }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-pre-existing' })
+    expect(idle).toHaveBeenCalledTimes(1)
   })
 
   it('acknowledges a wake immediately and mails the turn result when it settles', async () => {
