@@ -341,11 +341,16 @@ export default class YuyiRuntime extends TypertRemoteService {
   @Remote('peers')
   async peers(): Promise<PeerDevice[]> {
     const devices = await this.requireConnected().peers()
-    // Hub 的 findTargets 会把内部命中标记（agentNameHit）原地写进会话对象，
-    // 并随 peers 响应泄漏给端侧；这里把会话投影回协议声明的字段，避免
-    // 污染工具的严格输出 schema（additionalProperties: false）。
-    return devices.map(device => ({
-      ...device,
+    // Hub 的 findTargets 会把内部命中标记（agentNameHit）原地写进会话对象，并随
+    // peers 响应泄漏给端侧；hub 演进还会在 device 层新增字段（posts / description
+    // 等）。这里把 device 与 session 双层都投影回协议声明的字段——白名单之外
+    // 的一切不透传，避免污染工具的严格输出 schema（additionalProperties: false）。
+    return devices.map((device): PeerDevice => ({
+      device: device.device,
+      instanceID: device.instanceID,
+      ...(device.agentId !== undefined ? { agentId: device.agentId } : {}),
+      ...(device.role !== undefined ? { role: device.role } : {}),
+      ...(device.lastActiveAt !== undefined ? { lastActiveAt: device.lastActiveAt } : {}),
       sessions: device.sessions.map((session): RosterSession => ({
         sessionID: session.sessionID,
         title: session.title,
