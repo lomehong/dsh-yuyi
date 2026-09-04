@@ -583,6 +583,40 @@ describe('delivery routing', () => {
     expect(ack).toMatchObject({ ok: true, detail: 'own-device broadcast echo dropped' })
   })
 
+  it('heartbeat carries heartbeatExtra fields (remoteGateway 透传)', async () => {
+    // address 上报契约 §2：心跳帧透传 dsh-remote 网关状态（通道只透传不解释）
+    const hub = await startHub()
+    const { HubClient } = await import('../src/core.ts')
+    const client = new HubClient({
+      url: hub.url, device: 'hb-dev', instanceID: 'hb-1', token: 't',
+      agentKind: 'dsh-probe', capabilities: { wake: false },
+      onDeliver: async () => ({ ok: true }),
+      heartbeatIntervalMs: 60,
+      heartbeatExtra: () => ({ remoteGateway: { address: '192.168.1.146:3090', enabled: true } }),
+      log: () => {},
+    })
+    client.start()
+    await vi.waitFor(() => { expect(hub.heartbeatFrames.length).toBeGreaterThanOrEqual(1) }, { timeout: 3000, interval: 20 })
+    client.stop()
+    expect(hub.heartbeatFrames[0]!.remoteGateway).toEqual({ address: '192.168.1.146:3090', enabled: true })
+  })
+
+  it('heartbeat omits remoteGateway when heartbeatExtra is absent', async () => {
+    const hub = await startHub()
+    const { HubClient } = await import('../src/core.ts')
+    const client = new HubClient({
+      url: hub.url, device: 'hb-dev', instanceID: 'hb-2', token: 't',
+      agentKind: 'dsh-probe', capabilities: { wake: false },
+      onDeliver: async () => ({ ok: true }),
+      heartbeatIntervalMs: 60,
+      log: () => {},
+    })
+    client.start()
+    await vi.waitFor(() => { expect(hub.heartbeatFrames.length).toBeGreaterThanOrEqual(1) }, { timeout: 3000, interval: 20 })
+    client.stop()
+    expect('remoteGateway' in hub.heartbeatFrames[0]!).toBe(false)
+  })
+
   it('matches a roster entry by session id when no alias exists', async () => {
     const hub = await startHub()
     const { ctx, service } = await connectedService(hub)

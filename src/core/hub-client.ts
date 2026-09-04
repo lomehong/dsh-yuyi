@@ -31,6 +31,11 @@ export interface HubClientOptions {
   onDeliver: (message: YuyiMessage) => Promise<{ ok: boolean; detail?: string; handlerSessionID?: string }>
   /** 心跳检测到未读邮件数 >0 时回调（适配器据此提醒用户查收 / 主动拉取） */
   onUnreadMail?: (count: number) => void
+  /** 心跳帧附加字段（如 dsh-remote 网关状态 remoteGateway 透传——address 上报契约 §2，
+    *  通道只透传不解释）；每次心跳重取，返回 undefined 则不加字段 */
+  heartbeatExtra?: () => Record<string, unknown> | undefined
+  /** 心跳间隔覆盖（毫秒）；供测试加速，缺省 30_000 */
+  heartbeatIntervalMs?: number
   log?: (msg: string) => void
 }
 
@@ -331,11 +336,14 @@ export class HubClient {
    *  + 未读邮件检测（remaining >0 触发 onUnreadMail 回调，适配器提醒用户查收）。
    *  + 心跳统计：成功/失败计数，每 N 次上报一次 heartbeat/stats（严格失败率度量）。 */
   private startHeartbeat(): void {
+    const interval = this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer)
     this.heartbeatTimer = setTimeout(() => {
       if (!this.closed && this.connected) {
         const id = newID("hb")
-        this.request(id, { type: "inbox/fetch", id, limit: 0 })
+        // heartbeatExtra：适配器级透传字段（如 dsh-remote 网关状态），随每次心跳上报
+        const extra = this.opts.heartbeatExtra?.() ?? {}
+        this.request(id, { type: "inbox/fetch", id, limit: 0, ...extra })
           .then((frame) => {
             this.heartbeatFailStreak = 0
             this.heartbeatOk++
@@ -361,7 +369,7 @@ export class HubClient {
           })
         this.startHeartbeat()
       }
-    }, HEARTBEAT_INTERVAL_MS)
+    }, interval)
   }
 
   /** 每 HEARTBEAT_STATS_INTERVAL 次心跳上报一次 ok/fail 增量（best-effort，失败只记日志） */

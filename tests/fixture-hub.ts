@@ -15,7 +15,7 @@ function rawText(raw: RawData): string {
   return new TextDecoder().decode(raw)
 }
 import type {
-  ClientFrame, DeliverFrame, HubFeature, HelloFrame,
+  ClientFrame, DeliverFrame, HubFeature, HelloFrame, InboxFetchFrame,
   PeerDevice, RosterSession, TaskDataFrame, TraceFrame, YuyiMessage,
 } from '../src/core.ts'
 
@@ -78,6 +78,8 @@ export class FixtureHub {
   readonly sentMessages: YuyiMessage[] = []
   /* * 收到的每个 ack 帧（我们的 `deliver` 应答）。 */
   readonly deliverAcks: DeliverAck[] = []
+  /* * 收到的每个心跳帧（inbox/fetch {limit:0}，含 heartbeatExtra 透传字段）。 */
+  readonly heartbeatFrames: InboxFetchFrame[] = []
 
   private readonly server: Server = createServer()
   private readonly wss: WebSocketServer
@@ -193,6 +195,7 @@ export class FixtureHub {
         this.reply(conn, { type: 'peers', id: frame.id, devices: this.peersDevices })
         return
       case 'inbox/fetch':
+        if (frame.limit === 0) this.heartbeatFrames.push(frame)
         this.reply(conn, {
           type: 'inbox/data',
           id: frame.id,

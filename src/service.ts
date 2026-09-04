@@ -15,7 +15,9 @@
  * @module dsh-yuyi
  */
 
-import { hostname } from 'node:os'
+import { hostname, homedir } from 'node:os'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
@@ -425,6 +427,30 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   /**
+    * dsh-remote 网关状态读取（address 上报契约 §1+§2，
+    * docs/plans/2026-09-04-instance-address-report.md）：
+    * 状态文件 `<DSH_HOME>/plugins/dsh-remote/gateway-state.json` 由 dsh-remote 原子写，
+    * 本通道只透传不解释——读不到/未装 dsh-remote → undefined（心跳帧不加字段）；
+    * enabled:false → `{ remoteGateway: { enabled: false } }`（区分「未安装」与「已停用」）。
+    * 损坏容忍：任何读异常静默返回 undefined，绝不影响心跳。
+    */
+  private readRemoteGatewayState(): Record<string, unknown> | undefined {
+    try {
+      const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+      const file = join(home, 'plugins', 'dsh-remote', 'gateway-state.json')
+      if (!existsSync(file)) return undefined
+      const st = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+      if (st.enabled === false) return { remoteGateway: { enabled: false } }
+      if (typeof st.address === 'string' && st.address.length > 0) {
+        return { remoteGateway: { address: st.address, enabled: true } }
+      }
+      return undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
     * 按当前解析出的设置停止并重启 hub 连接，
     * 串行化在任何在途周期之后：设置变更落在
     * 仍等待令牌的 start 时，必须叫停该 start 的结果而非与之竞态。
@@ -473,6 +499,9 @@ export default class YuyiRuntime extends TypertRemoteService {
       agentKind: 'dsh',
       capabilities: { wake: true },
       onDeliver: this.handleDeliver,
+      // address 上报契约（docs/plans/2026-09-04-instance-address-report.md §2）：
+      // 心跳帧透传 dsh-remote 网关状态，御符侧 upsert 进 device_info
+      heartbeatExtra: () => this.readRemoteGatewayState(),
       /* v8 ignore next 3 -- hub unread arrives only from the 30s heartbeat
          probe; a real socket cannot advance that clock inside a unit fork. */
       onUnreadMail: (count) => {
