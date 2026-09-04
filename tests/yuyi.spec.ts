@@ -6,6 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { PeerDevice, RosterSession, YuyiMessage } from '../src/core.ts'
+import { appendTaskRecord } from '../src/core.ts'
 import YuyiRuntime, { YuyiError } from '../src/service.ts'
 import { deliverySummary, formatIncoming } from '../src/delivery.ts'
 import * as CoreFacade from '../src/core.ts'
@@ -768,6 +769,31 @@ describe('hub inbox and peers', () => {
     const devices = await service.peers()
     expect(devices[0]!.sessions[0]).toEqual({ sessionID: 's1', title: 'T', directory: '/d' })
     expect('agentNameHit' in (devices[0]!.sessions[0] as object)).toBe(false)
+  })
+})
+
+describe('collab snapshot', () => {
+  it('merges hub peers with local task views when connected', async () => {
+    const hub = await startHub()
+    hub.peersDevices = [{ device: 'remote-dev', instanceID: 'inst-1', sessions: [], role: 'coder', lastActiveAt: 1234 }]
+    const { service } = await connectedService(hub)
+    appendTaskRecord('task-collab-a', { kind: 'created', taskId: 'task-collab-a', owner: { device: 'dsh-test-device' } })
+    appendTaskRecord('task-collab-a', { kind: 'depends', on: 'task-collab-upstream', note: 'needs the plan' })
+    const snapshot = await service.collab()
+    expect(snapshot.peers).toEqual([
+      { device: 'remote-dev', instanceID: 'inst-1', sessions: [], role: 'coder', lastActiveAt: 1234 },
+    ])
+    const view = snapshot.tasks.find(task => task.taskId === 'task-collab-a')
+    expect(view?.dependsOn).toEqual([{ taskId: 'task-collab-upstream', note: 'needs the plan' }])
+    expect(typeof snapshot.generatedAt).toBe('number')
+  })
+
+  it('degrades to local-only while the seam is dormant', async () => {
+    const { service } = await setup({ absentToken: true })
+    appendTaskRecord('task-collab-dormant', { kind: 'created', taskId: 'task-collab-dormant', owner: {} })
+    const snapshot = await service.collab()
+    expect(snapshot.peers).toEqual([])
+    expect(snapshot.tasks.map(task => task.taskId)).toContain('task-collab-dormant')
   })
 })
 

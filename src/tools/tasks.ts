@@ -1,5 +1,5 @@
 /**
-  * 十二个任务记忆工具（`yuyi_task_*`），构建在钉住核心的
+  * 十三个任务记忆工具（`yuyi_task_*`），构建在钉住核心的
   * 持久 `~/.yuyi/tasks/` 记录，`yuyi_task_continue` 经
   * yuyi 服务做阻塞式等回复。
  * @module dsh-yuyi/tools/tasks
@@ -14,6 +14,7 @@ import {
   archiveTask,
   closeTask,
   compactTask,
+  TASK_ID_RE,
   taskSnapshot,
   taskView,
   type TaskRecordInput,
@@ -43,6 +44,7 @@ export interface TaskShowValue {
   verification?: Array<{ criterionIndex: number; passed: boolean; evidence?: string; verifier?: string }>
   phase?: { name: string; note?: string }
   assignee?: { target: string; phase?: string; note?: string }
+  dependsOn: Array<{ taskId: string; note?: string }>
   snapshot: string
   hubIndex?: string
 }
@@ -164,7 +166,7 @@ function renderEvent(value: TaskEventValue): string {
 }
 
 /**
-  * 在调用上下文的工具注册表上注册十二个任务工具。
+  * 在调用上下文的工具注册表上注册十三个任务工具。
   * @param ctx - 插件上下文（工具注册表与 yuyi 服务在场）。
  */
 export function applyTaskTools(ctx: Context): void {
@@ -275,6 +277,18 @@ export function applyTaskTools(ctx: Context): void {
               note: { type: 'string' },
             },
           },
+          dependsOn: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                taskId: { type: 'string', required: true },
+                note: { type: 'string' },
+              },
+            },
+          },
           snapshot: { type: 'string', required: true },
           hubIndex: { type: 'string' },
         },
@@ -326,6 +340,10 @@ export function applyTaskTools(ctx: Context): void {
             ...(view.assignee.note !== undefined ? { note: view.assignee.note } : {}),
           },
         } : {}),
+        dependsOn: view.dependsOn.map(dep => ({
+          taskId: dep.taskId,
+          ...(dep.note !== undefined ? { note: dep.note } : {}),
+        })),
         /* v8 ignore next -- a view exists only when the record has events, and
            taskSnapshot then renders; the empty arm is defensive. */
         snapshot: taskSnapshot(args.task_id) ?? '',
@@ -592,6 +610,35 @@ export function applyTaskTools(ctx: Context): void {
           kind: 'assign',
           assignee: args.assignee,
           ...(args.phase !== undefined ? { phase: args.phase } : {}),
+          ...(args.note !== undefined ? { note: args.note } : {}),
+        }))],
+      }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'yuyi_task_depend',
+    description: 'Declare an upstream dependency between two durable yuyi tasks (this task waits on the '
+      + 'upstream one). Dependencies surface as edges in the collaboration panel\'s task graph.',
+    parameters: {
+      task_id: { type: 'string', required: true, description: 'The downstream (waiting) task id.' },
+      on: { type: 'string', required: true, description: 'The upstream task id this task depends on.' },
+      note: { type: 'string', description: 'Why the dependency exists.' },
+    },
+    output: {
+      schema: EVENT_SCHEMA,
+      render: (_args, value: TaskEventValue) => [{ type: 'text', text: renderEvent(value) }],
+    },
+    async execute(args) {
+      if (!TASK_ID_RE.test(args.on)) {
+        throw new Error(`yuyi_task_depend: invalid upstream task id ${args.on}`)
+      }
+      return {
+        taskId: args.task_id,
+        event: `depends ${args.on}`,
+        records: [outcomeOf(appendTaskRecord(args.task_id, {
+          kind: 'depends',
+          on: args.on,
           ...(args.note !== undefined ? { note: args.note } : {}),
         }))],
       }

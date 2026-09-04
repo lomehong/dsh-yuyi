@@ -6,7 +6,12 @@
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { YuyiMessage } from './core.ts'
+import type { PeerDevice, YuyiMessage } from './core.ts'
+import type { TaskView } from './core/yuyi-task.ts'
+
+/* * 客户端（协同面板）消费的 peer 与任务链视图形态。 */
+export type { PeerDevice } from './core/protocol.ts'
+export type { TaskView } from './core/yuyi-task.ts'
 
 /* * yuyi 接缝的稳定失败码；按这些路由，绝不按消息文案。 */
 export type YuyiErrorCode =
@@ -152,4 +157,19 @@ export interface YuyiReplyResult {
   readonly sent: YuyiMessage
   /* * 关联的回信，按 hub 背书的形态。 */
   readonly reply: YuyiMessage
+}
+
+/**
+  * 协同面板快照（`yuyi/collab` 端点）：hub 可达的远端
+  * peer 与本机全部任务链视图，一次轮询一个往返。
+  * peers 尽力而为——hub 未连接或抖动时为空数组，
+  * 任务链始终来自本机 `~/.yuyi/tasks/` 记录。
+ */
+export interface YuyiCollabSnapshot {
+  /* * 每个已连接远端设备一条（含 roster 会话、role 与最近活跃）。 */
+  readonly peers: readonly PeerDevice[]
+  /* * 本机任务链视图，按最近活动降序；归档不入列。 */
+  readonly tasks: readonly TaskView[]
+  /* * 快照生成时刻（epoch ms）。 */
+  readonly generatedAt: number
 }

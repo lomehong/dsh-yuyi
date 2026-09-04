@@ -11,6 +11,23 @@
 declare module '@deepseek-ai/dsh-client-runtime/client' {
   /* * 传给会话作用域插槽注入 thunk 的不透明会话 id。 */
   export type SessionId = string
+  /* * 运行中的工具调用块（tool/call 已见、tool/result 未到）。 */
+  export interface RunningToolCall {
+    callId: string
+    name: string
+    argsRaw: string
+  }
+  /* * 已落定的工具结果块。 */
+  export interface ToolResultBlock {
+    kind: 'tool-result'
+    callId: string
+    /* * 配对的调用头（窗口截断后可能为 null）。 */
+    call: { name: string; argsRaw: string } | null
+    content: ReadonlyArray<{ type: string; text?: string }>
+    isError?: boolean
+  }
+  /* * 一次调用运行中或已落定的块。 */
+  export type ToolCallBlock = RunningToolCall | ToolResultBlock
   /* * 一个命名空间节上的设置作用域（宿主接缝的浏览器镜像）。 */
   export interface SettingsScope<T> {
     getSnapshot(): { status: 'loading' | 'ready' | 'unavailable'; value: T | undefined; user: unknown; writable: boolean }

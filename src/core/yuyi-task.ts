@@ -30,8 +30,8 @@ export const TASK_COMPACT_KEEP_ROUNDS = Number(process.env.YUYI_TASK_COMPACT_KEE
 /** 水合快照单轮文本截断长度（§4.5，P0 不做 LLM 摘要） */
 export const TASK_SNAPSHOT_TEXT_CAP = 200
 
-/** 任务文件名白名单：taskId 只允许 [A-Za-z0-9_-]（防路径穿越，§4.3） */
-const TASK_ID_RE = /^[A-Za-z0-9_-]+$/
+/** 任务文件名白名单：taskId 只允许 [A-Za-z0-9_-]（防路径穿越，§4.3）。依赖声明的上游 id 同此约束。 */
+export const TASK_ID_RE = /^[A-Za-z0-9_-]+$/
 
 /** 模块级计数（可观测性/测试）：坏行、正文超限、reply 幂等跳过、目录上限提示 */
 export const taskRecordCounters = {
@@ -77,6 +77,7 @@ export type TaskEvent =
   | { seq: number; at: number; kind: "verify"; criterionIndex: number; passed: boolean; evidence: string; verifier: string }
   | { seq: number; at: number; kind: "phase"; name: string; note?: string }
   | { seq: number; at: number; kind: "assign"; assignee: string; phase?: string; note?: string }
+  | { seq: number; at: number; kind: "depends"; on: string; note?: string }
 
 export interface TaskReadResult {
   events: TaskEvent[]
@@ -403,6 +404,8 @@ export interface TaskView {
   phase?: { name: string; note?: string }
   /** 当前归属（最近 assign 事件） */
   assignee?: { target: string; phase?: string; note?: string }
+  /** 上游依赖（depends 事件，按 on 去重取最近一条 note；不含自引用） */
+  dependsOn: Array<{ taskId: string; note?: string }>
   /** 本机记录是否不完整（有事件但无 created/request 轮次，跨设备视图） */
   incomplete: boolean
 }
@@ -430,6 +433,16 @@ export function taskView(taskId: string): TaskView | undefined {
   const assigns = events.filter((e): e is Extract<TaskEvent, { kind: "assign" }> => e.kind === "assign")
   const lastPhase = phases[phases.length - 1]
   const lastAssign = assigns[assigns.length - 1]
+  // 依赖边：按 on 去重、后写覆盖先写（与验收进度同一口径；Map 保持
+  // 首次出现顺序），自引用忽略
+  const dependsMap = new Map<string, string | undefined>()
+  for (const ev of events) {
+    if (ev.kind !== "depends" || ev.on === taskId) continue
+    dependsMap.set(ev.on, ev.note)
+  }
+  const dependsOn: Array<{ taskId: string; note?: string }> = [...dependsMap].map(
+    ([dep, note]) => note === undefined ? { taskId: dep } : { taskId: dep, note },
+  )
   // 验收进度：每条 criteria 取最新的 verify 事件（后写覆盖先写）
   const verification = lastGoal
     ? lastGoal.criteria.map((_, i) => {
@@ -454,6 +467,7 @@ export function taskView(taskId: string): TaskView | undefined {
     acceptanceComplete,
     phase: lastPhase ? { name: lastPhase.name, note: lastPhase.note } : undefined,
     assignee: lastAssign ? { target: lastAssign.assignee, phase: lastAssign.phase, note: lastAssign.note } : undefined,
+    dependsOn,
   }
   if (!created && requests.length === 0) {
     // 跨设备视图：只有 attach/note 等事件，无轮次内容 → 本机记录不完整
@@ -482,6 +496,31 @@ export function taskView(taskId: string): TaskView | undefined {
 
 export interface TaskSnapshotOptions {
   maxRounds?: number
+}
+
+/**
+ * 列出本机全部任务链视图（协同面板数据源）：活跃目录逐个 taskView，
+ * 归档不入列（yuyi_task_show 仍可按 id 读历史）；按最近活动降序——
+ * 排序键取最后一条 request 时间，无 request 时回退创建时间。
+ */
+export function listTaskViews(): TaskView[] {
+  let names: string[]
+  try {
+    names = readdirSync(DIR)
+  } catch {
+    return [] // 目录尚不存在（一条任务都没记过）是常态，不是失败
+  }
+  const views: TaskView[] = []
+  for (const name of names) {
+    if (!name.endsWith(".jsonl")) continue
+    const taskId = name.slice(0, -".jsonl".length)
+    if (!TASK_ID_RE.test(taskId)) continue
+    const view = taskView(taskId)
+    if (view !== undefined) views.push(view)
+  }
+  return views.sort(
+    (a, b) => (b.lastRequestAt ?? b.createdAt) - (a.lastRequestAt ?? a.createdAt),
+  )
 }
 
 interface RoundView {
@@ -561,6 +600,9 @@ export function taskSnapshot(taskId: string, opts: TaskSnapshotOptions = {}): st
   }
   if (view.phase) lines.push(`  阶段：${view.phase.name}${view.phase.note ? `（${view.phase.note}）` : ""}`)
   if (view.assignee) lines.push(`  归属：${view.assignee.target}${view.assignee.phase ? `（${view.assignee.phase}）` : ""}${view.assignee.note ? ` ${view.assignee.note}` : ""}`)
+  if (view.dependsOn.length > 0) {
+    lines.push(`  依赖：${view.dependsOn.map((d) => d.note === undefined ? d.taskId : `${d.taskId}（${d.note}）`).join("、")}`)
+  }
   if (rounds.length > 0) {
     lines.push("  最近轮次：")
     for (const r of tail) {

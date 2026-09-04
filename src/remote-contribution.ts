@@ -3,7 +3,11 @@
   * `ctx.remote.$mount`。从 harness typert 生成器
   * 为同一服务发出的产物；线路命名空间与 schema 不变，
   * 因此宿主 source-mode 发现原样应答这些端点。
- */
+  *
+  * 手工维护注记：`yuyi/collab` 描述符为本仓库手工追加
+  * （跟随 service.ts 的 `@Remote('collab')`）。若上游生成器
+  * 重新生成本文件，需按 git 历史重放该描述符。
+*/
 import { z } from 'zod'
 
 const _dsh_yuyi_yuyi_inbox_parameter_0$schema = z.union([z.intersection(z.string(), z.unknown()), z.literal("device")])
@@ -58,6 +62,69 @@ const _dsh_yuyi_yuyi_peers_result$schema = z.array(z.object({
   'role': z.string().optional(),
   'lastActiveAt': z.number().optional(),
 }))
+// 手工追加（见文件头注记）：跟随 service.ts 的 @Remote('collab')。
+const _dsh_yuyi_yuyi_collab_result$schema = z.object({
+  'peers': _dsh_yuyi_yuyi_peers_result$schema.readonly(),
+  'tasks': z.array(z.object({
+  'taskId': z.string(),
+  'createdAt': z.number(),
+  'owner': z.object({
+  'agentId': z.string().optional(),
+  'name': z.string().optional(),
+  'device': z.string().optional(),
+  'sessionID': z.string().optional(),
+}).optional(),
+  'round': z.number(),
+  'lastRequestText': z.string(),
+  'lastRequestAt': z.number().optional(),
+  'lastReplyMsgId': z.string().optional(),
+  'lastReplyFrom': z.object({
+  'device': z.string().optional(),
+  'name': z.string().optional(),
+  'sessionID': z.string().optional(),
+  'agentId': z.string().optional(),
+  'ownerUsername': z.string().optional(),
+}).optional(),
+  'pendingTarget': z.string().optional(),
+  'artifacts': z.array(z.object({
+  'ref': z.string(),
+  'note': z.string().optional(),
+})),
+  'summaries': z.array(z.object({
+  'by': z.string(),
+  'text': z.string(),
+})),
+  'latestAttachSession': z.string().optional(),
+  'closed': z.boolean().optional(),
+  'archived': z.boolean().optional(),
+  'goal': z.object({
+  'description': z.string(),
+  'criteria': z.array(z.string()),
+}).optional(),
+  'verification': z.array(z.object({
+  'criterionIndex': z.number(),
+  'passed': z.boolean(),
+  'evidence': z.string().optional(),
+  'verifier': z.string().optional(),
+})).optional(),
+  'acceptanceComplete': z.boolean(),
+  'phase': z.object({
+  'name': z.string(),
+  'note': z.string().optional(),
+}).optional(),
+  'assignee': z.object({
+  'target': z.string(),
+  'phase': z.string().optional(),
+  'note': z.string().optional(),
+}).optional(),
+  'dependsOn': z.array(z.object({
+  'taskId': z.string(),
+  'note': z.string().optional(),
+})),
+  'incomplete': z.boolean(),
+})).readonly(),
+  'generatedAt': z.number().readonly(),
+})
 const _dsh_yuyi_yuyi_status_result$schema = z.object({
   'configured': z.boolean().readonly(),
   'connected': z.boolean().readonly(),
@@ -147,6 +214,22 @@ export const TYPERT_REMOTE = {
         schema: _dsh_yuyi_yuyi_status_result$schema,
       },
       sourceLocation: {"file":"packages/yuyi/yuyi/src/index.ts","line":144,"column":3},
+    },
+    // 手工追加（见文件头注记）：协同面板快照端点。
+    {
+      id: 'dsh-yuyi#yuyi/collab',
+      service: 'yuyi',
+      namespace: 'yuyi',
+      method: 'collab',
+      invocation: { kind: 'direct' },
+      parameters: [
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: 'dsh-yuyi/types#YuyiCollabSnapshot',
+        schema: _dsh_yuyi_yuyi_collab_result$schema,
+      },
+      sourceLocation: {"file":"src/service.ts","line":345,"column":9},
     },
   ],
 }

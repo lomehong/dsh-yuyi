@@ -31,6 +31,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   HubClient,
   formatHubTaskIndex,
+  listTaskViews,
   matchSession,
   newID,
   parseAddress,
@@ -47,7 +48,7 @@ import {
 import { collectAssistantText, deliverySummary, formatIncoming, replyAddressOf } from './delivery.ts'
 import { YuyiError } from './types.ts'
 import type {
-  YuyiConfig, YuyiDeliveryRoute, YuyiReplyResult, YuyiRosterEntry,
+  YuyiCollabSnapshot, YuyiConfig, YuyiDeliveryRoute, YuyiReplyResult, YuyiRosterEntry,
   YuyiSendRequest, YuyiSendResult, YuyiStatus,
 } from './types.ts'
 
@@ -361,6 +362,25 @@ export default class YuyiRuntime extends TypertRemoteService {
         ...(session.capabilities !== undefined ? { capabilities: session.capabilities } : {}),
       })),
     }))
+  }
+
+  /**
+    * 协同面板快照：hub 可达的远端 peer 加本机全部任务链视图，
+    * 一次轮询一个往返。peers 尽力而为——hub 未连接或抖动时
+    * 降级为空数组，任务链始终来自本机 `~/.yuyi/tasks/` 记录，
+    * 因此未配置的部署仍能为面板提供本机视图。
+    * @returns 协同快照。
+   */
+  @Remote('collab')
+  async collab(): Promise<YuyiCollabSnapshot> {
+    let peers: PeerDevice[] = []
+    try {
+      peers = await this.peers()
+    } catch {
+      // 未配置/未连接/hub 抖动：面板据此渲染「未连接」态而非失败。
+      peers = []
+    }
+    return { peers, tasks: listTaskViews(), generatedAt: Date.now() }
   }
 
   /**

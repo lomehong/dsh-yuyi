@@ -1,31 +1,49 @@
 /**
   * dsh-yuyi 浏览器半：把 yuyi Remote 贡献挂进
   * 网关客户端（`ctx.remote.$mount` —— 宿主 source-mode 发现
-  * 应答端点），并以轮询镜像连接状态（
+  * 应答端点），以轮询镜像连接状态与协同快照（
   * harness 的转发事件白名单是编译期的，因此外置
-  * 插件按间隔刷新），并注册两个面：
-  * 会话视图环里的"御驿"标签页与御驿连接设置区块
-  * 进设置面板。区块经
-  * settings-scope 服务；提交的写入即时落地为重连。
+  * 插件按间隔刷新），并注册两组表面：
+  * shell.overlay 里的协同活动面板（关闭态为右缘拉手，
+  * 不占宿主标题栏）与四张 `tool.call.toolview` 协同卡片，
+  * 外加御驿连接设置区块。旧的会话标签页已由活动面板取代。
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import TYPERT_REMOTE from '../remote-contribution.ts'
 import type { InboxEntry } from '../core.ts'
+import type { YuyiCollabSnapshot } from '../types.ts'
 import type { YuyiStatus } from '../types.ts'
 import { YuyiStatusMirror, unwrap, type Result } from './status-mirror.ts'
-import { YuyiView, type YuyiViewInjected } from './tab/YuyiView.tsx'
-import { inboxRows } from './tab/model.ts'
-import { en as tabEn, NS as TAB_NS, zh as tabZh, type YuyiTabKey } from './tab/locales.ts'
+import { YuyiCollabMirror, unwrapCollab } from './collab-mirror.ts'
+import { YuyiPanel, type YuyiPanelInjected, type YuyiPanelProps } from './panel/YuyiPanel.tsx'
+import { NS as PANEL_NS, en as panelEn, zh as panelZh, type YuyiPanelKey } from './panel/locales.ts'
+import { createPanelStore } from './panel/store.ts'
+import {
+  dagLayout, inboxRows, inboxSender, interpolate, panelModel, taskStatusOf, upstreamOf,
+  type MemberCard, type PanelCounts, type PanelModel, type PresenceState,
+  type TaskCardStatus, type YuyiInboxEntryRead, type YuyiInboxRow,
+} from './panel/model.ts'
+import { COLLAB_CARDS } from './cards.tsx'
 import { YuyiSettingsSection, type YuyiSettingsSectionInjected } from './settings/YuyiSettingsSection.tsx'
 import { en as sectionEn, NS as SECTION_NS, zh as sectionZh, type YuyiSettingsKey } from './settings/locales.ts'
 import { YUYI_SETTINGS_NAMESPACE, type YuyiSettingsValue, type YuyiTokenStore } from './settings/settings-contract.ts'
 
 export { YuyiStatusMirror, unwrap } from './status-mirror.ts'
+export { YuyiCollabMirror, unwrapCollab } from './collab-mirror.ts'
 export type { Result, YuyiStatusState } from './status-mirror.ts'
-export { YuyiView } from './tab/YuyiView.tsx'
-export type { YuyiViewInjected, YuyiViewProps } from './tab/YuyiView.tsx'
-export { connectionState, inboxRows, inboxSender } from './tab/model.ts'
-export type { YuyiInboxRow, YuyiSessionRow, YuyiTabModel } from './tab/model.ts'
+export type { YuyiCollabState } from './collab-mirror.ts'
+export { YuyiPanel } from './panel/YuyiPanel.tsx'
+export type { YuyiPanelInjected, YuyiPanelProps } from './panel/YuyiPanel.tsx'
+export { connectionState, dagLayout, inboxRows, inboxSender, interpolate, panelModel, taskStatusOf, upstreamOf } from './panel/model.ts'
+export type {
+  DagLayout, DagNode, MemberCard, PanelCounts, PanelModel,
+  PresenceState, TaskCardStatus, YuyiInboxEntryRead, YuyiInboxRow,
+} from './panel/model.ts'
+export { createPanelStore, type YuyiPanelStore } from './panel/store.ts'
+export { COLLAB_CARDS } from './cards.tsx'
+export type { CollabCardInjected, CollabCardProps } from './cards.tsx'
+export { panelEn, panelZh, PANEL_NS }
+export type { YuyiPanelKey }
 export { YuyiSettingsSection } from './settings/YuyiSettingsSection.tsx'
 export type { YuyiSettingsSectionInjected, YuyiSettingsSectionProps } from './settings/YuyiSettingsSection.tsx'
 export { draftValid, draftWrite, fieldDraft, userOverrides } from './settings/model.ts'
@@ -35,15 +53,13 @@ export {
   type YuyiConnectionField, type YuyiFieldDescriptor, type YuyiSettingsValue,
   type YuyiTokenState, type YuyiTokenStore,
 } from './settings/settings-contract.ts'
-export { en as tabEn, zh as tabZh } from './tab/locales.ts'
-export type { YuyiTabKey } from './tab/locales.ts'
 export { en as sectionEn, zh as sectionZh } from './settings/locales.ts'
 export type { YuyiSettingsKey } from './settings/locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /* * 御驿标签页文案。 */
-    'yuyiTab': YuyiTabKey
+    /* * 协同活动面板与会话内卡片文案。 */
+    'yuyiPanel': YuyiPanelKey
     /* * 御驿设置区块文案。 */
     'settings.yuyi': YuyiSettingsKey
   }
@@ -53,6 +69,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 interface YuyiRemoteFace {
   status(): Promise<Result<YuyiStatus>>
   inbox(target: string, peek?: boolean): Promise<Result<InboxEntry[]>>
+  collab(): Promise<Result<YuyiCollabSnapshot>>
 }
 
 /* * 所需服务：插槽、字典、设置传输与类型化 Remote。 */
@@ -60,7 +77,8 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.creden
 
 /**
   * 客户端插件主体：挂载 Remote 贡献，注册
-  * 字典，并注册标签页与设置区块。
+  * 字典，并注册活动面板、头部工具钮、协同卡片
+  * 与设置区块。
   * @param ctx - 客户端根上下文。
  */
 export function apply(ctx: ClientContext): void {
@@ -69,7 +87,7 @@ export function apply(ctx: ClientContext): void {
     return () => { void dispose() }
   }, 'dsh-yuyi: remote contribution')
 
-  ctx.effect(() => ctx.locale.register(TAB_NS, { zh: tabZh, en: tabEn }), 'dsh-yuyi: tab dictionaries')
+  ctx.effect(() => ctx.locale.register(PANEL_NS, { zh: panelZh, en: panelEn }), 'dsh-yuyi: panel dictionaries')
   ctx.effect(() => ctx.locale.register(SECTION_NS, { zh: sectionZh, en: sectionEn }), 'dsh-yuyi: section dictionaries')
 
   // 已挂载命名空间是运行时状态：上面的 $mount 异步落定后 `remote.yuyi`
@@ -84,23 +102,63 @@ export function apply(ctx: ClientContext): void {
     if (face === undefined) throw new Error('yuyi remote namespace is not mounted yet')
     return face
   }
-  const mirror = new YuyiStatusMirror(async () => unwrap(await yuyiFace().status()))
-  ctx.effect(() => mirror.start(), 'dsh-yuyi: status mirror')
+  const readStatus = async (): Promise<YuyiStatus> => unwrap(await yuyiFace().status())
+  const readCollab = async (): Promise<YuyiCollabSnapshot> => unwrapCollab(await yuyiFace().collab())
+  const readInbox = async (target: 'device' | SessionId, peek: boolean): Promise<YuyiInboxEntryRead[]> =>
+    unwrap(await yuyiFace().inbox(target === 'device' ? target : sessionIdKey(target), peek))
 
-  const tabT = ctx.locale.bind(TAB_NS)
-  ctx.slots.inject('conversation.view', () => ctx.slots.register({
-    name: 'conversation.view',
-    id: 'yuyi',
+  const mirror = new YuyiStatusMirror(readStatus)
+  ctx.effect(() => mirror.start(), 'dsh-yuyi: status mirror')
+  const collabMirror = new YuyiCollabMirror(readCollab)
+  ctx.effect(() => collabMirror.start(), 'dsh-yuyi: collab mirror')
+
+  // 面板注入面的 onChange：两个镜像任一发布即触发刷新。
+  const onChange = (listener: () => void): (() => void) => {
+    const offStatus = mirror.subscribe(listener)
+    const offCollab = collabMirror.subscribe(listener)
+    return () => { offStatus(); offCollab() }
+  }
+  const panelStore = createPanelStore()
+
+  // 已配置御驿但用户从未选择过关合 → 首个状态快照到达时自动展开
+  // 面板（协同可视化是本插件的核心可见面，不能只靠一个隐蔽的
+  // 头部小钮）。用户一旦手动开合过（localStorage 有记录），
+  // 以用户的选择为准，绝不抢夺。
+  ctx.effect(() => mirror.subscribe(() => {
+    const status = mirror.getSnapshot().current
+    if (status?.configured === true && !panelStore.hasUserChoice()) panelStore.open()
+  }), 'dsh-yuyi: panel auto-open')
+
+  // 协同活动面板：shell.overlay 是宿主给外置 bundle 的加性浮层席位。
+  // 关闭态渲染右缘拉手（对话区域内常驻入口），展开态渲染面板本体；
+  // 会话内卡片的「活动面板」链接与拉手同源开合。刻意不用
+  // conversation.session.header.utilities——桌面壳把它排进标题栏，
+  // 与窗口最小化/关闭按钮重叠。
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'yuyi-panel',
     order: 20,
-    locale: TAB_NS,
-    label: () => tabT('tab.label'),
-    inject: (sessionId: SessionId): YuyiViewInjected => ({
-      readStatus: async () => unwrap(await yuyiFace().status()),
-      readInbox: async (target, peek) =>
-        inboxRows(unwrap(await yuyiFace().inbox(target === 'device' ? target : sessionId, peek))),
-      onStatusChange: listener => mirror.subscribe(() => { listener() }),
+    locale: PANEL_NS,
+    inject: (): YuyiPanelInjected => ({
+      readStatus,
+      readCollab,
+      readInbox,
+      onChange,
+      panel: panelStore,
     }),
-  }, YuyiView))
+  }, YuyiPanel))
+
+  // 四张协同卡片：按 wire 工具名键控的 tool.call.toolview，
+  // 卡片只渲染该次调用的参数与结果，带「活动面板」链接。
+  for (const [toolName, Card] of Object.entries(COLLAB_CARDS)) {
+    ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+      name: 'tool.call.toolview',
+      key: toolName,
+      id: `yuyi-${toolName}`,
+      locale: PANEL_NS,
+      inject: () => ({ panel: panelStore }),
+    }, Card))
+  }
 
   const scope = ctx.settingsScope.bind<YuyiSettingsValue>({ namespace: YUYI_SETTINGS_NAMESPACE })
   // 令牌操作面：值经凭证域只写不读，引用名取当前 tokenEnv 设置（默认
@@ -145,4 +203,9 @@ export function apply(ctx: ClientContext): void {
       token: tokenStore,
     }),
   }, YuyiSettingsSection))
+}
+
+/* * inbox 端点的 target 参数按收件人字符串走线路；SessionId 是品牌类型。 */
+function sessionIdKey(sessionId: SessionId): string {
+  return String(sessionId)
 }
