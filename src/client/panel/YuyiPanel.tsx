@@ -193,6 +193,7 @@ export function YuyiPanel(props: YuyiPanelProps): JSX.Element | null {
               {model.avatar.self && <span className={css.selfTag}>self</span>}
             </span>
             <span className={css.avatarSub}>
+              {model.avatar.windows !== undefined && model.avatar.windows > 0 ? `${model.avatar.windows} 个本机窗口 · ` : ''}
               {interpolate(tKey('member.running'), { count: model.avatar.running })}
               {' · '}
               {interpolate(tKey('member.waiting'), { count: model.avatar.waiting })}

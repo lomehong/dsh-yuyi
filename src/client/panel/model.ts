@@ -49,15 +49,21 @@ export function interpolate(template: string, params: Record<string, string | nu
     name in params ? String(params[name]) : raw)
 }
 
+
+/* * 本机 roster 的展示名集合（用于 peer 回显去重）。 */
+function rosterNames(status: YuyiStatusRead): string[] {
+  return status.sessions.map(session => (session.name ?? session.sessionId).toLowerCase())
+}
+
 /* * 成员在协同里的呈现状态。 */
 export type PresenceState = 'active' | 'awaiting' | 'idle' | 'unknown'
 
 /* * 任务链在面板上的折叠状态。 */
 export type TaskCardStatus = 'in_progress' | 'awaiting' | 'deliverable' | 'done' | 'archived'
 
-/* * 一张成员卡：本地 roster 会话、本机身份或远端 peer 会话。 */
+/* * 一张成员卡：本机身份或远端 peer 会话。 */
 export interface MemberCard {
-  /* * 稳定 React 键：`self` / `local:<sessionId>` / `peer:<device>/<sessionID>`。 */
+  /* * 稳定 React 键：`self` / `peer:<device>/<sessionID>`。 */
   key: string
   /* * 展示名：别名、权威 agent 名或会话 id。 */
   name: string
@@ -191,28 +197,16 @@ export function panelModel(status: YuyiStatusRead, collab: Readonly<{ peers: rea
   const self: MemberCard = {
     key: 'self',
     name: status.agentName ?? status.device,
-    title: status.ownerUsername !== undefined ? status.ownerUsername : status.device,
+    title: status.ownerUsername ?? status.device,
     ...(status.role !== undefined ? { role: status.role } : {}),
     device: status.device,
     local: true,
     self: true,
+    // 本机窗口数：同一分身的其他对话窗口（一个实例 = 一个分身，不拆成多成员）
+    windows: status.sessions.length,
     presence: status.connected ? 'active' : 'unknown',
     ...countsFor({ name: status.agentName ?? status.device, device: status.device }),
   }
-
-  const rosterCards: MemberCard[] = status.sessions.map(session => {
-    const member = { name: session.name ?? session.sessionId, device: status.device }
-    return {
-      key: `local:${session.sessionId}`,
-      name: member.name,
-      title: session.title,
-      device: status.device,
-      local: true,
-      self: false,
-      presence: presenceFor('unknown', undefined, member),
-      ...countsFor(member),
-    }
-  })
 
   const peerCards: MemberCard[] = (collab?.peers ?? []).flatMap((device: PeerDevice) =>
     device.sessions.map(session => {
@@ -232,16 +226,15 @@ export function panelModel(status: YuyiStatusRead, collab: Readonly<{ peers: rea
   )
 
   // 同名去重：peer 列表可能回显本机连接（同 device 同名），以本机卡优先。
-  const seen = new Set<string>([self.name.toLowerCase(), ...rosterCards.map(card => card.name.toLowerCase())])
+  const seen = new Set<string>([self.name.toLowerCase(), ...rosterNames(status)])
   const uniquePeers = peerCards.filter(card => {
     const id = `${card.name.toLowerCase()}@${card.device.toLowerCase()}`
-    const localHit = card.local || seen.has(card.name.toLowerCase())
-    if (localHit) return false
+    if (seen.has(card.name.toLowerCase())) return false
     seen.add(id)
     return true
   })
 
-  const all = [self, ...rosterCards, ...uniquePeers]
+  const all = [self, ...uniquePeers]
   const avatar = all.find(card => card.role === 'avatar')
   const members = avatar !== undefined ? all.filter(card => card !== avatar) : all
 
