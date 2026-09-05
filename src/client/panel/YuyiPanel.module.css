@@ -316,8 +316,9 @@
   line-height: 16px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary));
-  color: var(--dsw-alias-bg-base, #fff);
+  /* 主题自带对比保证的主按钮配对：fill + invert 标签。 */
+  background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-label-primary));
+  color: var(--dsw-alias-brand-primary-invert, var(--dsw-alias-bg-base, #fff));
   white-space: nowrap;
 }
 
@@ -573,7 +574,7 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* 状态点：configured/connected 点亮（品牌色），未配置保持灰。 */
+/* 状态点：configured/connected 点亮（成功绿，主题自适应），未配置保持灰。 */
 .railDot {
   width: 7px;
   height: 7px;
@@ -583,7 +584,7 @@
 }
 
 .railDot[data-configured='true'] {
-  background: var(--dsw-alias-brand-primary, var(--dsw-alias-state-success-primary));
+  background: var(--dsw-alias-state-success-primary);
 }
 
 .railText {
