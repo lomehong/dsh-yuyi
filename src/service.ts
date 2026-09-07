@@ -634,6 +634,17 @@ export default class YuyiRuntime extends TypertRemoteService {
   }
 
   private findByTarget(target: string, taskId?: string): YuyiRosterEntry | undefined {
+    // 0. 任务锚点先于显式寻址（2026-09-07 强化，f0b01773 事故）：对端会按它
+    //    记录的「最后回执方」等陈旧会话 id 回信——显式 id 在步骤 1 精确命中，
+    //    线程被劈进无关窗口（实测 omp 回信三次落进排查用新窗口，锚点逻辑
+    //    被完全绕过）。taskId 在手且本机任务记录有活锚点时，锚点即线程归属；
+    //    显式 id 只在无 taskId、无本机记录或锚点已死时生效。
+    if (taskId !== undefined && taskId.length > 0) {
+      const anchor = this.taskAnchorSession(taskId)
+      if (anchor !== undefined && this.ctx.agents.get(anchor) !== undefined) {
+        return { sessionId: anchor, title: '', directory: '' }
+      }
+    }
     // 1. 显式 roster 匹配（sessionID / alias）。别名恰好等于本 agentName 的
     //    显式绑定也在此命中——用户点名的主会话语义最优先。
     for (const entry of this.roster.values()) {
@@ -645,24 +656,16 @@ export default class YuyiRuntime extends TypertRemoteService {
     //    权威覆写，对端回信因此永远打 agentName。此前此处「挑第一个 idle 的
     //    live session」——唤醒目标随空闲状态漂移，回复频繁落进无关/新开的
     //    会话（实测：omp 回信反复唤醒新窗口）。改为确定性链：
-    //    任务锚点 → 最早注册会话 → 任意 live。
+    //    最早注册会话 → 任意 live（taskId 锚点已在步骤 0 处理）。
     const agentName = this.client?.agentName
     if (target.length > 0 && agentName !== undefined && agentName.length > 0
         && agentName.toLowerCase() === target.toLowerCase()) {
-      // 2a. 任务锚点：带 taskId 的消息回它所属的会话（任务记忆层 §6.2 的
-      //     投递侧应用——yuyi_task_attach 承诺「后续轮次直接回这里」）。
-      if (taskId !== undefined && taskId.length > 0) {
-        const anchor = this.taskAnchorSession(taskId)
-        if (anchor !== undefined && this.ctx.agents.get(anchor) !== undefined) {
-          return { sessionId: anchor, title: '', directory: '' }
-        }
-      }
-      // 2b. 最早注册的 roster 会话（Map 按注册序迭代≈最老的 live 窗口）——
+      // 2a. 最早注册的 roster 会话（Map 按注册序迭代≈最老的 live 窗口）——
       //     稳定、可预期，兑现「agent 级投递落最早注册会话」的文档契约。
       for (const entry of this.roster.values()) {
         if (this.ctx.agents.get(entry.sessionId) !== undefined) return entry
       }
-      // 2c. 旧兜底：无任何注册会话时按 idle 优先挑任意 live（广播路径同款）。
+      // 2b. 旧兜底：无任何注册会话时按 idle 优先挑任意 live（广播路径同款）。
       return this.pickAnyLiveSession()
     }
     return undefined

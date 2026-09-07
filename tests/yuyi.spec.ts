@@ -709,6 +709,35 @@ describe('delivery routing', () => {
     expect(live.followup).toHaveBeenCalledTimes(1)
   })
 
+  it('taskId anchor outranks an explicit but stale session-id match', async () => {
+    // f0b01773 事故（2026-09-07）：对端按它记录的「最后回执方」陈旧会话 id 回信，
+    // 显式 id 在 roster 步骤精确命中，线程被劈进无关窗口、锚点被完全绕过。
+    // 强化后：taskId 有活锚点时锚点压过显式 id——线程归属以任务记录为准。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-stale'), { title: 'Stale', directory: '' })
+    const stale = fakeAgent(ctx, 'sess-stale', 'idle')
+    const anchor = fakeAgent(ctx, 'sess-anchor', 'idle')
+    appendTaskRecord('task-stale-id', { kind: 'created', taskId: 'task-stale-id', owner: { device: 'dsh-test-device' } })
+    appendTaskRecord('task-stale-id', { kind: 'attach', sessionID: 'sess-anchor', device: 'dsh-test-device', note: '后续轮次直接回这里' })
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'sess-stale' }, taskId: 'task-stale-id' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-anchor' })
+    expect(anchor.followup).toHaveBeenCalledTimes(1)
+    expect(stale.followup).not.toHaveBeenCalled()
+  })
+
+  it('explicit session-id targeting still wins when the task has no local record', async () => {
+    // 锚点强化的边界：taskId 无本机记录（跨设备全新任务首轮）时不越权——
+    // 显式会话 id 寻址保持原语义。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-explicit'), { title: 'Explicit', directory: '' })
+    const explicit = fakeAgent(ctx, 'sess-explicit', 'idle')
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'sess-explicit' }, taskId: 'task-no-local-record' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-explicit' })
+    expect(explicit.followup).toHaveBeenCalledTimes(1)
+  })
+
   it('still parks agent-name deliveries in the device inbox when no session is registered', async () => {
     const hub = await startHub()
     const { service } = await connectedService(hub)
