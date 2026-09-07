@@ -172,6 +172,13 @@ export default class YuyiRuntime extends TypertRemoteService {
     private toRosterSession;
     private findByTarget;
     /**
+      * 任务锚点会话：读本机任务记录（~/.yuyi/tasks/<taskId>.jsonl）推导该任务
+      * 的归属会话——最新 attach（显式「回这里」信号），其次最后一条 request 的
+      * 发起会话、created owner 会话。记录不存在/锚点无效（含非法 taskId）返回
+      * undefined，由调用方走后续兜底。同步读小文件，投递路径可承受。
+      */
+    private taskAnchorSession;
+    /**
       * 从 ctx.agents 动态挑一个 live 会话作为 wake 兜底目标。优先 idle 以避免
       * 与正在跑的 turn 抢上下文；其次任意 live；无 live 返回 undefined 让上层
       * 落 inbox。

@@ -640,6 +640,75 @@ describe('delivery routing', () => {
     expect(idle.followup).toHaveBeenCalledTimes(1)
   })
 
+  it('anchors agent-name deliveries carrying a taskId to the task-attached session', async () => {
+    // 目标漂移修复：hub 对出站消息做 from.name = agentName 权威覆写，对端回信
+    // 永远打 agentName。带 taskId 的回信必须回任务锚点会话（最新 attach 的
+    // 「后续轮次直接回这里」承诺），而不是第一个 idle 的 live session。
+    const hub = await startHub()
+    const { ctx } = await connectedService(hub)
+    const origin = fakeAgent(ctx, 'sess-origin', 'idle')
+    const anchor = fakeAgent(ctx, 'sess-anchor', 'idle')
+    appendTaskRecord('task-anchor-unit', { kind: 'created', taskId: 'task-anchor-unit', owner: { device: 'dsh-test-device', sessionID: 'sess-origin' } })
+    appendTaskRecord('task-anchor-unit', { kind: 'request', msgId: 'msg-req-1', from: { device: 'dsh-test-device', sessionID: 'sess-origin' }, to: { target: 'omp-assist' }, text: 'round 1' })
+    appendTaskRecord('task-anchor-unit', { kind: 'attach', sessionID: 'sess-anchor', device: 'dsh-test-device', note: '后续轮次直接回这里' })
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-anchor-unit' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-anchor' })
+    expect(anchor.followup).toHaveBeenCalledTimes(1)
+    expect(origin.followup).not.toHaveBeenCalled()
+  })
+
+  it('anchors to the last request sender when the task has no attach event', async () => {
+    const hub = await startHub()
+    const { ctx } = await connectedService(hub)
+    const newer = fakeAgent(ctx, 'sess-newer', 'idle')
+    const origin = fakeAgent(ctx, 'sess-origin', 'idle')
+    appendTaskRecord('task-req-unit', { kind: 'created', taskId: 'task-req-unit', owner: { device: 'dsh-test-device' } })
+    appendTaskRecord('task-req-unit', { kind: 'request', msgId: 'msg-req-2', from: { device: 'dsh-test-device', sessionID: 'sess-origin' }, to: { target: 'omp-assist' }, text: 'round 1' })
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-req-unit' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-origin' })
+    expect(origin.followup).toHaveBeenCalledTimes(1)
+    expect(newer.followup).not.toHaveBeenCalled()
+  })
+
+  it('lands agent-name deliveries without a task on the earliest registered session', async () => {
+    // 目标漂移修复的第二条腿：无 taskId 的 agent 级投递落最早注册会话（稳定可
+    // 预期），不再「谁空闲唤醒谁」——旧实现对第一个 idle 的 live 唤醒，新开的
+    // 无关窗口会反复中签（omp 回信落新会话的实测根因）。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-first'), { title: 'First', directory: '' })
+    service.register(SessionId('sess-second'), { title: 'Second', directory: '' })
+    const running = fakeAgent(ctx, 'sess-first', 'running')
+    const idle = fakeAgent(ctx, 'sess-second', 'idle')
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' } }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-first' })
+    expect(running.steer).toHaveBeenCalledTimes(1)
+    expect(idle.followup).not.toHaveBeenCalled()
+  })
+
+  it('falls through to the earliest registered session when the task anchor is not live', async () => {
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-live'), { title: 'Live', directory: '' })
+    const live = fakeAgent(ctx, 'sess-live', 'idle')
+    appendTaskRecord('task-dead-anchor', { kind: 'created', taskId: 'task-dead-anchor', owner: { device: 'dsh-test-device' } })
+    appendTaskRecord('task-dead-anchor', { kind: 'attach', sessionID: 'sess-gone', device: 'dsh-test-device' })
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-dead-anchor' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-live' })
+    expect(live.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('still wakes any live session via agentName when nothing is registered and no anchor applies', async () => {
+    // 兜底不变：无 roster、taskId 无本机记录 → 旧的 live 兜底（跨设备发起的
+    // 全新任务首轮即此形态；一旦本地落了 request/attach 事件即转锚点路由）。
+    const hub = await startHub()
+    const { ctx } = await connectedService(hub)
+    const live = fakeAgent(ctx, 'sess-live', 'idle')
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-unknown-record' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-live' })
+    expect(live.followup).toHaveBeenCalledTimes(1)
+  })
+
   it('still parks agent-name deliveries in the device inbox when no session is registered', async () => {
     const hub = await startHub()
     const { service } = await connectedService(hub)
