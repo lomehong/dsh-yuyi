@@ -173,9 +173,13 @@ export default class YuyiRuntime extends TypertRemoteService {
     private findByTarget;
     /**
       * 任务锚点会话：读本机任务记录（~/.yuyi/tasks/<taskId>.jsonl）推导该任务
-      * 的归属会话——最新 attach（显式「回这里」信号），其次最后一条 request 的
-      * 发起会话、created owner 会话。记录不存在/锚点无效（含非法 taskId）返回
-      * undefined，由调用方走后续兜底。同步读小文件，投递路径可承受。
+      * 的归属会话。候选按优先级排列——最新 attach（显式「回这里」信号）、最后
+      * 一条 request 的发起会话、created owner 会话；**活候选优先**（0.1.3 修复：
+      * attach 指向已关闭窗口时不得直接放弃记录，线程里可能还有活着的发言窗口，
+      * 如重启后重开的原会话——0.1.2 在此场景把消息兜底给了 roster 首个无关
+      * 窗口，即 faf87be2 二次漂移）。候选全死时返回首候选：由调用方停靠进该
+      * 会话收件箱，宁停靠不漂移。记录不存在/非法 taskId 返回 undefined。
+      * 同步读小文件，投递路径可承受。
       */
     private taskAnchorSession;
     /**

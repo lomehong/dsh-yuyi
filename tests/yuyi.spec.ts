@@ -686,7 +686,25 @@ describe('delivery routing', () => {
     expect(idle.followup).not.toHaveBeenCalled()
   })
 
-  it('falls through to the earliest registered session when the task anchor is not live', async () => {
+  it('prefers the live last-request sender over a dead attach anchor', async () => {
+    // 0.1.3（faf87be2 二次漂移）：attach 指向已关闭窗口、但线程里还有活着的
+    // 最后发言窗口（如重启后重开的原会话）时，必须用活候选——0.1.2 在 attach
+    // 死亡时直接放弃整份记录，消息兜底给了 roster 首个无关窗口。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-origin'), { title: 'Origin', directory: '' })
+    const origin = fakeAgent(ctx, 'sess-origin', 'idle')
+    appendTaskRecord('task-dead-attach', { kind: 'created', taskId: 'task-dead-attach', owner: { device: 'dsh-test-device' } })
+    appendTaskRecord('task-dead-attach', { kind: 'attach', sessionID: 'sess-gone', device: 'dsh-test-device' })
+    appendTaskRecord('task-dead-attach', { kind: 'request', msgId: 'msg-req-3', from: { device: 'dsh-test-device', sessionID: 'sess-origin' }, to: { target: 'omp-assist' }, text: '继续旧链' })
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-dead-attach' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-origin' })
+    expect(origin.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('parks anchored deliveries in the dead anchor inbox when every candidate is dead', async () => {
+    // 0.1.3：锚点候选全死时不再漂向最早注册的无关窗口——消息停靠进线程所属
+    // 会话的收件箱（该窗口重开即达），宁停靠不漂移。
     const hub = await startHub()
     const { ctx, service } = await connectedService(hub)
     service.register(SessionId('sess-live'), { title: 'Live', directory: '' })
@@ -694,8 +712,9 @@ describe('delivery routing', () => {
     appendTaskRecord('task-dead-anchor', { kind: 'created', taskId: 'task-dead-anchor', owner: { device: 'dsh-test-device' } })
     appendTaskRecord('task-dead-anchor', { kind: 'attach', sessionID: 'sess-gone', device: 'dsh-test-device' })
     const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-dead-anchor' }))
-    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-live' })
-    expect(live.followup).toHaveBeenCalledTimes(1)
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-gone', detail: 'session not live; parked in session inbox' })
+    expect(live.followup).not.toHaveBeenCalled()
+    expect(service.inboxRead(SessionId('sess-gone'), true).map(entry => entry.message.id)).toEqual(['msg_remote_1'])
   })
 
   it('still wakes any live session via agentName when nothing is registered and no anchor applies', async () => {
