@@ -30,13 +30,16 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   HubClient,
+  appendTaskRecord,
   formatHubTaskIndex,
   latestAttach,
   listTaskViews,
+  lookupSentSession,
   matchSession,
   newID,
   parseAddress,
   readTask,
+  rememberSentMessage as appendSentLedgerEntry,
   yuyiEnvFile,
   yuyiEnvToken,
   append as inboxAppend,
@@ -266,6 +269,8 @@ export default class YuyiRuntime extends TypertRemoteService {
    */
   async send(request: YuyiSendRequest): Promise<YuyiSendResult> {
     const message = this.buildMessage(request)
+    this.seedTaskRequest(message)
+    this.rememberSentMessage(message)
     const ack = await this.dispatch(message)
     const result: YuyiSendResult = {
       message,
@@ -274,6 +279,57 @@ export default class YuyiRuntime extends TypertRemoteService {
       ...(ack.handlerSessionID !== undefined ? { handlerSessionID: ack.handlerSessionID } : {}),
     }
     return result
+  }
+
+  /**
+    * 任务记忆播种（0.1.4，v0.2.9 部署指令漂移事故）：用户发起、带 taskId 的
+    * 出站消息落一条 request 事件到本机任务记录——让每条线程在出生时刻就被
+    * 锚点系统看见。此前只有 yuyi_task_continue 会写记录，纯 yuyi_send 开的
+    * 线程对本机锚定不可见，对端回信（taskId 在手、本机无记录）被 hub 的
+    * roster 首窗改写兜底，实测漂进无关会话。两类豁免：
+    * ① 自动机制（autoAcknowledge/watchTurnResult，contextHint 带 yuyi:auto
+    *    前缀）——它们携带的是被唤醒窗口的身份，落记录会把锚点劫到无关窗口；
+    * ② 无真实发件会话（fromSession 缺省，from.sessionID 解析为 'dsh'）——
+    *    没有可归属的窗口，锚无可锚。
+    * 写失败不阻断发送：记录是投递的辅助账本，不是通道本身。
+    */
+  private seedTaskRequest(message: YuyiMessage): void {
+    if (message.taskId === undefined
+        || (message.contextHint?.startsWith(AUTO_HINT_PREFIX) ?? false)
+        || message.from.sessionID === 'dsh') {
+      return
+    }
+    try {
+      appendTaskRecord(message.taskId, {
+        kind: 'request',
+        msgId: message.id,
+        ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
+        from: {
+          device: message.from.device,
+          sessionID: message.from.sessionID,
+          ...(message.from.name !== undefined ? { name: message.from.name } : {}),
+        },
+        to: { target: message.to.target },
+        text: message.text,
+      })
+    } catch (error) {
+      this.ctx.logger.warn('yuyi: task request seed failed', error)
+    }
+  }
+
+  /**
+    * 出站账本登记（0.1.4，与 seedTaskRequest 同批事故）：记住「哪条出站消息
+    * 是哪个窗口发的」，对端回信凭 replyTo 反查发件窗口——覆盖对端代铸新
+    * taskId 的场景（无 taskId 发送时，任务锚点对该线程失明）。豁免口径与
+    * seedTaskRequest 一致：自动机制不记（防锚点被无关窗口劫走）、无真实
+    * 发件会话不记。失败静默（账本只影响锚定精度）。
+    */
+  private rememberSentMessage(message: YuyiMessage): void {
+    if (message.from.sessionID === 'dsh'
+        || (message.contextHint?.startsWith(AUTO_HINT_PREFIX) ?? false)) {
+      return
+    }
+    appendSentLedgerEntry(message.id, message.from.sessionID)
   }
 
   /**
@@ -287,6 +343,7 @@ export default class YuyiRuntime extends TypertRemoteService {
    */
   async sendExpectingReply(request: YuyiSendRequest, signal?: AbortSignal): Promise<YuyiReplyResult> {
     const message = this.buildMessage({ ...request, expectReply: true })
+    this.rememberSentMessage(message)
     const timeoutMs = this.settingsSource().replyTimeoutMs
     // 等待者先于发送注册：快的 hub 可能在
     // ack 之后立即送达，只在 `dispatch`
@@ -633,7 +690,7 @@ export default class YuyiRuntime extends TypertRemoteService {
     }
   }
 
-  private findByTarget(target: string, taskId?: string): YuyiRosterEntry | undefined {
+  private findByTarget(target: string, taskId?: string, replyTo?: string): YuyiRosterEntry | undefined {
     // 0. 任务锚点先于一切寻址（2026-09-07/08，f0b01773 与 faf87be2 两次事故）：
     //    hub 会把 agent 级命中改写成会话 id，显式 id 在步骤 1 精确命中就会劈走
     //    线程；taskId 在手且有本机任务记录时，锚点即线程归属——活锚点直接唤醒，
@@ -642,6 +699,16 @@ export default class YuyiRuntime extends TypertRemoteService {
       const anchor = this.taskAnchorSession(taskId)
       if (anchor !== undefined) {
         return { sessionId: anchor, title: '', directory: '' }
+      }
+    }
+    // 0.5. replyTo 账本（0.1.4，v0.2.9 事故）：不带 taskId 的 yuyi_send，对端
+    //     回信会代铸新 taskId——任务锚点对本线程失明，消息被 hub 兜底给 roster
+    //     首个窗口。出站账本记住「哪条出站消息是哪个窗口发的」，回信凭 replyTo
+    //     找回原窗口：活则唤醒，死则停靠其收件箱。
+    if (replyTo !== undefined && replyTo.length > 0) {
+      const origin = lookupSentSession(replyTo)
+      if (origin !== undefined) {
+        return { sessionId: origin as SessionId, title: '', directory: '' }
       }
     }
     // 1. 显式 roster 匹配（sessionID / alias）。别名恰好等于本 agentName 的
@@ -672,13 +739,14 @@ export default class YuyiRuntime extends TypertRemoteService {
 
   /**
     * 任务锚点会话：读本机任务记录（~/.yuyi/tasks/<taskId>.jsonl）推导该任务
-    * 的归属会话。候选按优先级排列——最新 attach（显式「回这里」信号）、最后
-    * 一条 request 的发起会话、created owner 会话；**活候选优先**（0.1.3 修复：
-    * attach 指向已关闭窗口时不得直接放弃记录，线程里可能还有活着的发言窗口，
-    * 如重启后重开的原会话——0.1.2 在此场景把消息兜底给了 roster 首个无关
-    * 窗口，即 faf87be2 二次漂移）。候选全死时返回首候选：由调用方停靠进该
-    * 会话收件箱，宁停靠不漂移。记录不存在/非法 taskId 返回 undefined。
-    * 同步读小文件，投递路径可承受。
+    * 的归属会话。候选按优先级排列——最新 attach（显式「回这里」信号，用户
+    * 接管线程的意志，不被隐式发言冲掉）、最后一条 request 的发起会话（0.1.4
+    * 起纯 yuyi_send 也落 request，无 attach 线程的锚）、created owner 会话；
+    * **活候选优先**（0.1.3：首候选死亡时不得直接放弃记录——线程里可能还有
+    * 活着的发言窗口，如重启后重开的原会话——0.1.2 在此场景把消息兜底给了
+    * roster 首个无关窗口，即 faf87be2 二次漂移）。候选全死时返回首候选：由
+    * 调用方停靠进该会话收件箱，宁停靠不漂移。记录不存在/非法 taskId 返回
+    * undefined。同步读小文件，投递路径可承受。
     */
   private taskAnchorSession(taskId: string): SessionId | undefined {
     try {
@@ -765,7 +833,7 @@ export default class YuyiRuntime extends TypertRemoteService {
       this.emitDelivered(message, 'device-inbox')
       return { ok: true, detail: 'cross-device broadcast but no live session; parked' }
     }
-    const entry = this.findByTarget(message.to.target, message.taskId)
+    const entry = this.findByTarget(message.to.target, message.taskId, message.replyTo)
     if (entry === undefined) {
       inboxAppend(DEVICE_INBOX_KEY, message)
       this.emitDelivered(message, 'device-inbox')

@@ -91,6 +91,27 @@ export default class YuyiRuntime extends TypertRemoteService {
      */
     send(request: YuyiSendRequest): Promise<YuyiSendResult>;
     /**
+      * 任务记忆播种（0.1.4，v0.2.9 部署指令漂移事故）：用户发起、带 taskId 的
+      * 出站消息落一条 request 事件到本机任务记录——让每条线程在出生时刻就被
+      * 锚点系统看见。此前只有 yuyi_task_continue 会写记录，纯 yuyi_send 开的
+      * 线程对本机锚定不可见，对端回信（taskId 在手、本机无记录）被 hub 的
+      * roster 首窗改写兜底，实测漂进无关会话。两类豁免：
+      * ① 自动机制（autoAcknowledge/watchTurnResult，contextHint 带 yuyi:auto
+      *    前缀）——它们携带的是被唤醒窗口的身份，落记录会把锚点劫到无关窗口；
+      * ② 无真实发件会话（fromSession 缺省，from.sessionID 解析为 'dsh'）——
+      *    没有可归属的窗口，锚无可锚。
+      * 写失败不阻断发送：记录是投递的辅助账本，不是通道本身。
+      */
+    private seedTaskRequest;
+    /**
+      * 出站账本登记（0.1.4，与 seedTaskRequest 同批事故）：记住「哪条出站消息
+      * 是哪个窗口发的」，对端回信凭 replyTo 反查发件窗口——覆盖对端代铸新
+      * taskId 的场景（无 taskId 发送时，任务锚点对该线程失明）。豁免口径与
+      * seedTaskRequest 一致：自动机制不记（防锚点被无关窗口劫走）、无真实
+      * 发件会话不记。失败静默（账本只影响锚定精度）。
+      */
+    private rememberSentMessage;
+    /**
       * 发送一条 `expectReply` 消息并等待匹配的回信投递。
       * 等待在以下最先发生者处结束：回信到达、`replyTimeoutMs` 到期
       * （`YUYI_REPLY_TIMEOUT`），或 `signal` 中止（`YUYI_REPLY_ABORTED`）。
@@ -173,13 +194,14 @@ export default class YuyiRuntime extends TypertRemoteService {
     private findByTarget;
     /**
       * 任务锚点会话：读本机任务记录（~/.yuyi/tasks/<taskId>.jsonl）推导该任务
-      * 的归属会话。候选按优先级排列——最新 attach（显式「回这里」信号）、最后
-      * 一条 request 的发起会话、created owner 会话；**活候选优先**（0.1.3 修复：
-      * attach 指向已关闭窗口时不得直接放弃记录，线程里可能还有活着的发言窗口，
-      * 如重启后重开的原会话——0.1.2 在此场景把消息兜底给了 roster 首个无关
-      * 窗口，即 faf87be2 二次漂移）。候选全死时返回首候选：由调用方停靠进该
-      * 会话收件箱，宁停靠不漂移。记录不存在/非法 taskId 返回 undefined。
-      * 同步读小文件，投递路径可承受。
+      * 的归属会话。候选按优先级排列——最新 attach（显式「回这里」信号，用户
+      * 接管线程的意志，不被隐式发言冲掉）、最后一条 request 的发起会话（0.1.4
+      * 起纯 yuyi_send 也落 request，无 attach 线程的锚）、created owner 会话；
+      * **活候选优先**（0.1.3：首候选死亡时不得直接放弃记录——线程里可能还有
+      * 活着的发言窗口，如重启后重开的原会话——0.1.2 在此场景把消息兜底给了
+      * roster 首个无关窗口，即 faf87be2 二次漂移）。候选全死时返回首候选：由
+      * 调用方停靠进该会话收件箱，宁停靠不漂移。记录不存在/非法 taskId 返回
+      * undefined。同步读小文件，投递路径可承受。
       */
     private taskAnchorSession;
     /**

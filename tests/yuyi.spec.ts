@@ -6,7 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { PeerDevice, RosterSession, YuyiMessage } from '../src/core.ts'
-import { appendTaskRecord } from '../src/core.ts'
+import { appendTaskRecord, readTask } from '../src/core.ts'
 import YuyiRuntime, { YuyiError } from '../src/service.ts'
 import { deliverySummary, formatIncoming } from '../src/delivery.ts'
 import * as CoreFacade from '../src/core.ts'
@@ -715,6 +715,65 @@ describe('delivery routing', () => {
     expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-gone', detail: 'session not live; parked in session inbox' })
     expect(live.followup).not.toHaveBeenCalled()
     expect(service.inboxRead(SessionId('sess-gone'), true).map(entry => entry.message.id)).toEqual(['msg_remote_1'])
+  })
+
+  it('anchors a reply via the outbound ledger when the taskId is foreign', async () => {
+    // 0.1.4（v0.2.9 部署指令漂移）：不带 taskId 的 yuyi_send，对端回信会代铸
+    // 新 taskId——任务锚点对本线程失明，消息被 hub 兜底给 roster 首个窗口。
+    // 出站账本记住发件窗口，回信凭 replyTo 找回原窗口。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-deploy'), { title: 'Deploy', directory: '' })
+    const deploy = fakeAgent(ctx, 'sess-deploy', 'idle')
+    const sent = await service.send({ to: 'remote-peer', text: '【请执行】v0.2.9 部署指令', mode: 'notify', fromSession: SessionId('sess-deploy') })
+    const ack = await hub.deliver(remoteMessage({
+      to: { target: 'fixture-agent' },
+      replyTo: sent.messageId,
+      taskId: 'task-minted-by-peer',
+    }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-deploy' })
+    expect(deploy.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not ledger auto-machinery sends', async () => {
+    // 自动回执携带被唤醒窗口的身份——记账会把 replyTo 锚点劫到无关窗口。
+    const hub = await startHub()
+    const { service } = await connectedService(hub)
+    service.register(SessionId('sess-auto'), { title: 'Auto', directory: '' })
+    const sent = await service.send({ to: 'remote-peer', text: '已收到', mode: 'mail', fromSession: SessionId('sess-auto'), contextHint: 'yuyi:auto-ack' })
+    expect(CoreFacade.lookupSentSession(sent.messageId)).toBeUndefined()
+  })
+
+  it('taskId record still outranks the replyTo ledger', async () => {
+    // 顺序语义：任务记录（线程当前状态）优先于出站账本（消息级线索）——
+    // 两者都命中时，以线程最后的发言窗口为准。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-b'), { title: 'B', directory: '' })
+    const b = fakeAgent(ctx, 'sess-b', 'idle')
+    CoreFacade.rememberSentMessage('msg-from-a', 'sess-a')
+    appendTaskRecord('task-ledger-order', { kind: 'created', taskId: 'task-ledger-order', owner: { device: 'dsh-test-device' } })
+    appendTaskRecord('task-ledger-order', { kind: 'request', msgId: 'msg-req-b', from: { device: 'dsh-test-device', sessionID: 'sess-b' }, to: { target: 'omp-assist' }, text: '最新一轮' })
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'fixture-agent' }, taskId: 'task-ledger-order', replyTo: 'msg-from-a' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-b' })
+    expect(b.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('seeds a task request when a user send carries a taskId, anchoring later replies', async () => {
+    // 0.1.4：纯 yuyi_send 带 taskId → 发送即落本机 request 记录；对端回信
+    // （同 taskId）按锚点回到发送窗口——即便 hub 把回信改写成别的显式
+    // 会话 id 也拉得回来。无显式 attach 时 request 即线程锚。
+    const hub = await startHub()
+    const { ctx, service } = await connectedService(hub)
+    service.register(SessionId('sess-deploy'), { title: 'Deploy', directory: '' })
+    const deploy = fakeAgent(ctx, 'sess-deploy', 'idle')
+    service.register(SessionId('sess-other'), { title: 'Other', directory: '' })
+    fakeAgent(ctx, 'sess-other', 'idle')
+    await service.send({ to: 'remote-peer', text: '【请执行】部署指令', mode: 'notify', taskId: 'task-seeded', fromSession: SessionId('sess-deploy') })
+    expect(readTask('task-seeded').events.some((e) => e.kind === 'request')).toBe(true)
+    const ack = await hub.deliver(remoteMessage({ to: { target: 'sess-other' }, taskId: 'task-seeded' }))
+    expect(ack).toMatchObject({ ok: true, handlerSessionID: 'sess-deploy' })
+    expect(deploy.followup).toHaveBeenCalledTimes(1)
   })
 
   it('still wakes any live session via agentName when nothing is registered and no anchor applies', async () => {
