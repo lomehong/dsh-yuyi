@@ -88,7 +88,15 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^4.1.8",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@deepseek-ai/dsh-scope": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-invariants": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-code-runtime": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-user-approval": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-session-projection": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-atomic-write": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-home-paths": "0.1.2-rc.1",
+    "vite": "^7.3.6"
   },
   "repository": {
     "type": "git",
