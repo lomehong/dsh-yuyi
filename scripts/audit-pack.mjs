@@ -66,7 +66,8 @@ function entryFiles(man) {
   const found = new Set()
   if (typeof man.main === 'string') found.add(man.main)
   const walk = (node) => {
-    if (typeof node === 'string') found.add(node)
+    // 通配符映射（如 "./src/*": "./src/*"）是模式不是文件，无法逐文件校验，跳过
+    if (typeof node === 'string' && !node.includes('*')) found.add(node)
     else if (node && typeof node === 'object') for (const v of Object.values(node)) walk(v)
   }
   if (man.exports) walk(man.exports)
@@ -74,7 +75,7 @@ function entryFiles(man) {
 }
 
 const required = entryFiles(pkg)
-if (typeof pkg.dsh?.bundle?.patch === 'string') required.push(pkg.dsh.bundle.patch)
+if (typeof pkg.dsh?.bundle?.patch === 'string') required.push(pkg.dsh.bundle.patch.replace(/^\.\//, ''))
 for (const req of pkg.dsh?.releaseAudit?.require ?? []) required.push(req)
 
 for (const req of required) {
@@ -83,9 +84,10 @@ for (const req of required) {
 }
 
 for (const f of files) {
-  if (f.split('/').some((seg) => FORBIDDEN_DIRS.has(seg))) {
+  const allowSrc = pkg.dsh?.releaseAudit?.allowSrc === true
+  if (f.split('/').some((seg) => FORBIDDEN_DIRS.has(seg) && !(allowSrc && seg === 'src'))) {
     problems.push(`包含禁止目录（发布包只该有构建产物与声明文件）：${f}`)
-  } else if (f.endsWith('.tsx') || (f.endsWith('.ts') && !f.endsWith('.d.ts'))) {
+  } else if ((f.endsWith('.tsx') || (f.endsWith('.ts') && !f.endsWith('.d.ts'))) && !(allowSrc && f.startsWith('src/'))) {
     problems.push(`包含 TS 源码：${f}`)
   } else {
     for (const re of pkg.dsh?.releaseAudit?.forbid ?? []) {
@@ -109,3 +111,5 @@ if (problems.length > 0) {
   process.exit(1)
 }
 console.log(`[audit-pack] PASS：${mode}，${files.length} 个文件，必含 ${required.length} 项与禁含规则全部满足`)
+
+
