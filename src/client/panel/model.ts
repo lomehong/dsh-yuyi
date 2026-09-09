@@ -81,6 +81,8 @@ export interface MemberCard {
   running: number
   /* * 等待它回信的任务链数（pendingTarget 指向它）。 */
   waiting: number
+  /* * 本机窗口数（仅 avatar 自身卡有值）。 */
+  windows?: number
 }
 
 /* * 面板渲染所需的聚合计数。 */
