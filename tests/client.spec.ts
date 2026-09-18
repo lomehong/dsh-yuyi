@@ -112,8 +112,8 @@ function stubbed(): Stubbed {
     },
     slots: {
       inject: (_slot: string, register: () => unknown) => { void register() },
-      register: (options: Record<string, unknown>) => {
-        slots.push({ name: options['name'] as string, options })
+      register: (options: Record<string, unknown>, component: unknown) => {
+        slots.push({ name: options['name'] as string, options, component })
         return () => {}
       },
     },
@@ -149,7 +149,7 @@ describe('dsh-yuyi browser half', () => {
       ['tool.call.toolview', 'yuyi-yuyi_task_continue'],
       ['tool.call.toolview', 'yuyi-yuyi_task_show'],
       ['tool.call.toolview', 'yuyi-yuyi_peers'],
-      ['settings.section', 'yuyi'],
+      ['plugins.bundle.config', undefined], // keyed 槽位的卡片标识是 key（见下方 token 测试）
     ])
     const toolviews = slots.filter(slot => slot.name === 'tool.call.toolview')
     expect(toolviews.map(slot => slot.options['key'])).toEqual([
@@ -221,10 +221,14 @@ describe('dsh-yuyi browser half', () => {
   it('writes the adapter token through the credentials store under the configured ref', async () => {
     const { ctx, slots, credentialCalls } = stubbed()
     apply(ctx as never)
-    const section = slots.find(slot => slot.name === 'settings.section')?.options as {
-      inject: () => { token: { read(): Promise<{ configured: boolean }>; save(v: string): Promise<void>; clear(): Promise<void> } }
+    const section = slots.find(slot => slot.name === 'plugins.bundle.config') as {
+      options: { key?: string }
+      component: (props: { view: 'summary' | 'page' }) => { props: { token: { read(): Promise<{ configured: boolean }>; save(v: string): Promise<void>; clear(): Promise<void> } } }
     }
-    const injected = section.inject()
+    expect(section.options.key).toBe('dsh-yuyi')
+    // view: 'page' 渲染区块入口元素，注入物（含凭证 token store）挂在 element props 上
+    const el = section.component({ view: 'page' })
+    const injected = el.props as { token: { read(): Promise<{ configured: boolean }>; save(v: string): Promise<void>; clear(): Promise<void> } }
     await expect(injected.token.read()).resolves.toMatchObject({ configured: true, writable: true })
     await injected.token.save('dsh-token-value')
     await injected.token.clear()
