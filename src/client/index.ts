@@ -84,9 +84,30 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.creden
   * @param ctx - 客户端根上下文。
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(async () => {
-    const dispose = await ctx.remote.$mount(TYPERT_REMOTE)
-    return () => { void dispose() }
+  // 挂载远端贡献。注意：必须用同步 effect 内发非 awaited promise——
+  // 实测（0.1.6-alpha.2，merge-bundle 场景）`ctx.effect(async () => ...)`
+  // 的异步回调不会被调度执行（sync effect 均正常），$mount 因此永不发起，
+  // remote.yuyi 永不挂载，状态行卡「读取中」。同步 effect 100% 被调度；
+  // mount 完成前后各防一次 double-dispose。
+  ctx.effect(() => {
+    let dispose: (() => void) | undefined
+    let active = true
+    ctx.remote.$mount(TYPERT_REMOTE).then(
+      (d) => {
+        if (!active) {
+          void d()
+          return
+        }
+        dispose = d
+      },
+      (err) => {
+        ctx.logger?.error?.('[dsh-yuyi] $mount 失败（remote.yuyi 将不可用）:', err)
+      },
+    )
+    return () => {
+      active = false
+      if (typeof dispose === 'function') dispose()
+    }
   }, 'dsh-yuyi: remote contribution')
 
   ctx.effect(() => ctx.locale.register(PANEL_NS, { zh: panelZh, en: panelEn }), 'dsh-yuyi: panel dictionaries')
