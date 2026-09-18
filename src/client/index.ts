@@ -9,11 +9,12 @@
   * 外加御驿连接设置区块。旧的会话标签页已由活动面板取代。
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { useCallback, createElement, useSyncExternalStore } from 'react'
 import TYPERT_REMOTE from '../remote-contribution.ts'
 import type { InboxEntry } from '../core.ts'
 import type { YuyiCollabSnapshot } from '../types.ts'
 import type { YuyiStatus } from '../types.ts'
-import { YuyiStatusMirror, unwrap, type Result } from './status-mirror.ts'
+import { YuyiStatusMirror, unwrap, type Result, type YuyiStatusState } from './status-mirror.ts'
 import { YuyiCollabMirror, unwrapCollab } from './collab-mirror.ts'
 import { YuyiPanel, type YuyiPanelInjected, type YuyiPanelProps } from './panel/YuyiPanel.tsx'
 import { NS as PANEL_NS, en as panelEn, zh as panelZh, type YuyiPanelKey } from './panel/locales.ts'
@@ -24,9 +25,10 @@ import {
   type TaskCardStatus, type YuyiInboxEntryRead, type YuyiInboxRow,
 } from './panel/model.ts'
 import { COLLAB_CARDS } from './cards.tsx'
-import { YuyiSettingsSection, type YuyiSettingsSectionInjected } from './settings/YuyiSettingsSection.tsx'
+import { YuyiSettingsSection, type YuyiSettingsView } from './settings/YuyiSettingsSection.tsx'
 import { en as sectionEn, NS as SECTION_NS, zh as sectionZh, type YuyiSettingsKey } from './settings/locales.ts'
 import { YUYI_SETTINGS_NAMESPACE, type YuyiSettingsValue, type YuyiTokenStore } from './settings/settings-contract.ts'
+import type { YuyiConnectionField } from './settings/settings-contract.ts'
 
 export { YuyiStatusMirror, unwrap } from './status-mirror.ts'
 export { YuyiCollabMirror, unwrapCollab } from './collab-mirror.ts'
@@ -190,19 +192,37 @@ export function apply(ctx: ClientContext): void {
     },
   }
   const sectionT = ctx.locale.bind(SECTION_NS)
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'yuyi',
-    order: 30,
-    label: () => sectionT('nav'),
-    locale: SECTION_NS,
-    inject: (): YuyiSettingsSectionInjected => ({
-      hooks: { settings: scope, status: mirror },
-      save: (field, value) => scope.set(field, value),
-      reset: field => scope.unset(field),
+  // 插件页配置入口：settings.section 渲染器此前代劳的「hooks→useX 绑定 + locale t」
+  // 在此手工补齐（useSyncExternalStore 把作用域/镜像绑成 selector hooks；绑定函数
+  // 在 apply 作用域只建一次，组件生命周期内身份稳定）。
+  const subscribeScope = (notify: () => void): (() => void) => scope.subscribe(notify)
+  const subscribeMirror = (notify: () => void): (() => void) => mirror.subscribe(notify)
+  const useSettings = function useSettings<R>(selector: (snapshot: YuyiSettingsView) => R): R {
+    return useSyncExternalStore(subscribeScope, () => selector(scope.getSnapshot()))
+  }
+  const useStatus = function useStatus<R>(selector: (snapshot: YuyiStatusState) => R): R {
+    return useSyncExternalStore(subscribeMirror, () => selector(mirror.getSnapshot()))
+  }
+  const sectionProps = {
+    t: sectionT,
+    useSettings,
+    useStatus,
+    save: (field: YuyiConnectionField, value: string | number) => scope.set(field, value),
+    reset: (field: YuyiConnectionField) => scope.unset(field),
       token: tokenStore,
-    }),
-  }, YuyiSettingsSection))
+  }
+  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
+    {
+      name: 'plugins.bundle.config',
+      key: 'dsh-yuyi',
+    },
+    (props: { view: 'summary' | 'page' }) => {
+      if (props.view !== 'page') {
+        return createElement('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, '御驿通信：跨 Agent 寻址、收件箱与任务协作；点开配置 Hub 接入与令牌。')
+      }
+      return createElement(YuyiSettingsSection as unknown as (props: Record<string, unknown>) => JSX.Element, sectionProps)
+    },
+  ))
 }
 
 /* * inbox 端点的 target 参数按收件人字符串走线路；SessionId 是品牌类型。 */
