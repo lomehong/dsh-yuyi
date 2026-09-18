@@ -238,3 +238,53 @@ describe('dsh-yuyi browser half', () => {
     ])
   })
 })
+
+describe('remote-contribution strict codec 兼容 (v0.1.7 → v0.1.8 回归守卫)', () => {
+  it('确保 TYPERT_REMOTE 所有 descriptors 的 strict codec schema 暴露 parse()', async () => {
+    // 加载已带 ensureParse shim 的源模块并做静态断言：每个 strict codec
+    // schema 必须有可调用的 parse()。该断言捕捉 zod 跨包边界 / minify 后
+    // parse 丢失（v0.1.7 → 0.1.6-alpha.2 core 升级时的真实事故）的回归。
+    const mod = await import('../src/remote-contribution.ts')
+    const contribution = mod.default as {
+      descriptors: Array<{
+        id: string
+        result?: { codec?: { mode?: string; schema?: { parse?: unknown } } }
+        parameters?: Array<{ codec?: { mode?: string; schema?: { parse?: unknown } } }>
+      }>
+    }
+    expect(contribution.descriptors.length).toBeGreaterThan(0)
+    for (const descriptor of contribution.descriptors) {
+      const fields: Array<{ name: string; codec?: { mode?: string; schema?: { parse?: unknown } } }> = []
+      if (descriptor.result) fields.push({ name: 'result', codec: descriptor.result.codec })
+      for (const parameter of descriptor.parameters ?? []) fields.push({ name: 'parameter', codec: parameter.codec })
+      for (const field of fields) {
+        if (field.codec?.mode !== 'strict') continue
+        expect(
+          typeof field.codec?.schema?.parse,
+          `${descriptor.id} field ${field.name} codec.schema.parse 必须为 function`,
+        ).toBe('function')
+      }
+    }
+  })
+
+  it('ensureParse 包装层：safeParse-only schema 在 parse 包装后仍可正常工作', async () => {
+    // 直接复用文件顶部静态导入的 TYPERT_REMOTE——同模块实例，所有
+    // descriptors 的 schema 已走过 ensureParse。断言任一 descriptor 的
+    // strict codec schema 暴露可调用的 parse。
+    expect(TYPERT_REMOTE.descriptors.length).toBeGreaterThan(0)
+    const descriptor = TYPERT_REMOTE.descriptors[0]!
+    // descriptor.result 本身就是 codec（host runtime 直接读 result.mode）；
+    // descriptor.parameters[].codec 才是嵌套的 codec——两者形态不同
+    // （见 remote-contribution.ts 与 @deepseek-ai/dsh-typert-registry/lib/client.js:1339-1342）
+    const resultCodec = descriptor.result as { mode?: string; schema?: { parse?: unknown } }
+    expect(resultCodec.mode).toBe('strict')
+    expect(typeof resultCodec.schema?.parse).toBe('function')
+    const firstParamCodec = descriptor.parameters?.[0]?.codec as
+      | { mode?: string; schema?: { parse?: unknown } }
+      | undefined
+    if (firstParamCodec !== undefined) {
+      expect(firstParamCodec.mode).toBe('strict')
+      expect(typeof firstParamCodec.schema?.parse).toBe('function')
+    }
+  })
+})
