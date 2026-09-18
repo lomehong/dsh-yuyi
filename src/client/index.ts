@@ -101,7 +101,9 @@ export function apply(ctx: ClientContext): void {
         dispose = d
       },
       (err) => {
-        ctx.logger?.error?.('[dsh-yuyi] $mount 失败（remote.yuyi 将不可用）:', err)
+        // ClientContext 类型面没有 logger——防御式读取，类型转换与 dsh-twin 同款
+        const logger = (ctx as unknown as { logger?: { error?: (...args: unknown[]) => void } }).logger
+        logger?.error?.('[dsh-yuyi] $mount 失败（remote.yuyi 将不可用）:', err)
       },
     )
     return () => {
