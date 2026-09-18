@@ -234,4 +234,54 @@ export const TYPERT_REMOTE = {
   ],
 }
 
+/**
+ * 兼容 shim：dsh-yuyi 远端贡献用 zod schema 直接作为 strict codec 暴露给
+ * typert gateway。新版 runtime 的 validateCodec 要求
+ * `typeof codec.schema.parse === 'function'`；zod v3/v4 的部分构造在跨
+ * 进程/包边界（比如该包独立的 zod v4 与 host runtime 期望的 codec 形状）
+ * 暴露的 `parse` 在 minify 后不可直接被 typeof 判定为 function（原型链被
+ * 序列化/包装）。此函数保证每个 strict codec 的 schema 都带可调用的
+ * parse（若 schema 自身没有 parse 但有 safeParse 则包一层；最终失败时
+ * 抛错显式失败而不静默把整个 $mount 干掉）。
+ */
+function ensureParse<T>(schema: T): T {
+  if (schema === null || typeof schema !== 'object') return schema
+  const s = schema as unknown as { parse?: unknown; safeParse?: unknown; _parse?: unknown }
+  if (typeof s.parse === 'function') return schema
+  if (typeof s.safeParse === 'function') {
+    const orig = s as unknown as { safeParse: (v: unknown) => { data: unknown } }
+    const wrapped = Object.create(null) as { parse: (v: unknown) => unknown; _wrappedFrom: string }
+    wrapped.parse = (v: unknown) => orig.safeParse(v).data
+    wrapped._wrappedFrom = 'safeParse'
+    return wrapped as unknown as T
+  }
+  if (typeof s._parse === 'function') {
+    const orig = s as unknown as { _parse: (v: unknown) => unknown }
+    const wrapped = Object.create(null) as { parse: (v: unknown) => unknown; _wrappedFrom: string }
+    wrapped.parse = (v: unknown) => orig._parse(v)
+    wrapped._wrappedFrom = '_parse'
+    return wrapped as unknown as T
+  }
+  throw new Error('typert: schema exposes neither parse() nor safeParse() nor _parse() — cannot satisfy strict codec contract')
+}
+
+// 注入前对所有 codec 的 schema 做一次兼容处理（保持 descriptors 数组本身浅冻结，
+// 避免对 tsdown / 上游生成器的强契约假设做激进变更）。
+for (const descriptor of TYPERT_REMOTE.descriptors) {
+  if (descriptor.result && descriptor.result.codec) {
+    descriptor.result.codec.schema = ensureParse(descriptor.result.codec.schema) as never
+  }
+  if (Array.isArray(descriptor.parameters)) {
+    for (const parameter of descriptor.parameters) {
+      if (parameter && parameter.codec) {
+        parameter.codec.schema = ensureParse(parameter.codec.schema) as never
+      }
+    }
+  }
+  const invocation = (descriptor as { invocation?: { codec?: { schema?: unknown } } }).invocation
+  if (invocation && invocation.codec) {
+    invocation.codec.schema = ensureParse(invocation.codec.schema) as never
+  }
+}
+
 export default TYPERT_REMOTE
