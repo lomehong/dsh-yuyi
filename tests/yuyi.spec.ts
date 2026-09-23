@@ -479,7 +479,7 @@ describe('delivery routing', () => {
     expect(message.content[0]!.text).toBe(
       '[yuyi] from reviewer@remote-dev · owner alice · role avatar\nplease review the plan',
     )
-    expect(message.source).toMatchObject({ kind: 'plugin', plugin: 'dsh-yuyi', form: 'notice' })
+    expect(message.source).toMatchObject({ kind: 'yuyi', form: 'notice' })
     expect(delivered).toEqual(['woken:sess-a'])
     await vi.waitFor(() => { expect(hub.traceFrames).toEqual([expect.objectContaining({ event: 'injected', detail: 'followup' })]) })
   })
@@ -872,7 +872,7 @@ describe('delivery routing', () => {
       steer: vi.fn(),
       status: 'idle' as const,
       whenIdle: () => new Promise<void>((resolve) => { releaseIdle = resolve }),
-      session: { id, header: { version: 0, id, createdAt: 0 }, seq: 0, events },
+      session: { id, header: { version: 0, id, createdAt: 0 }, seq: 0, snapshotEvents: () => events },
     } as unknown as Agent
     const dispose = ctx.agents.register(agent)
     teardowns.push(async () => { dispose() })

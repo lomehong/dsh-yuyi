@@ -83,7 +83,6 @@ const DEFAULT_REPLY_TIMEOUT_MS = 300_000
   * 裸字面量在 installSection 入参位置由 `SettingsNamespaceInput<Namespace>` 约束，
   * 这里 cast 为 SettingsNamespace 以匹配 server 侧用工具（如测试与断言）的一致语义。
   * 参考上游 dsh-agent-default-model 的用法。 */
-const SETTINGS_NAMESPACE = 'yuyi'
 
 /* * 未命中任何 roster 会话的消息的收件箱键（设备级停靠）。 */
 const DEVICE_INBOX_KEY = 'device'
@@ -109,17 +108,18 @@ interface PendingReply {
  */
 export default class YuyiRuntime extends TypertRemoteService {
   /* * 插件配置 schema；默认值放在 schema 字段上。 */
-  static Config: z<YuyiConfig> = z.object({
-    hub: z.string(),
-    tokenEnv: z.string().default('YUYI_TOKEN'),
-    device: z.string(),
-    replyTimeoutMs: z.number().default(DEFAULT_REPLY_TIMEOUT_MS),
-  })
+  /* * 插件配置 schema；volatile 字段即 0.1.7 设置页可热更字段。 */
+  static Config = z.object({
+    hub: z.string().volatile(),
+    tokenEnv: z.string().role('credential-ref').default('YUYI_TOKEN').volatile(),
+    device: z.string().volatile(),
+    replyTimeoutMs: z.number().default(DEFAULT_REPLY_TIMEOUT_MS).volatile(),
+  }) as unknown as z<YuyiConfig>
 
   /* * 所需服务：投递路由据此解析的 agent 注册表。 */
   static inject = ['agents']
 
-  private settingsSource: () => YuyiConfig
+  private configArg: YuyiConfig
   private readonly roster = new Map<string, YuyiRosterEntry>()
   private readonly aliasToSession = new Map<string, string>()
   private readonly pendingReplies = new Map<string, PendingReply>()
@@ -143,22 +143,38 @@ export default class YuyiRuntime extends TypertRemoteService {
     * @param config - 已校验的插件配置；兼任构造器所注册的
     * 用户设置节之下的 `base` 层，由本构造器注册。
    */
+  /**
+   * 配置读取（双运行时形态）：0.1.7 的 loader 传 Volatile 引用
+   * （config.hub.get()），0.1.6 传纯值。全部消费点经此解引。
+   */
+  private settingsSource(): YuyiConfig {
+    const c = this.configArg
+    // Volatile 引用按最小结构识别（get() 返回任意快照），不依赖宿主类型包导出。
+    const read = (v: unknown): unknown =>
+      v !== null && typeof v === 'object' && typeof (v as { get?: unknown }).get === 'function'
+        ? (v as { get(): unknown }).get()
+        : v
+    return {
+      hub: read(c.hub) as string,
+      tokenEnv: read(c.tokenEnv) as string,
+      device: read(c.device) as string | undefined,
+      replyTimeoutMs: read(c.replyTimeoutMs) as number,
+    }
+  }
+
   constructor(ctx: Context, config: YuyiConfig) {
     super(ctx, 'yuyi')
-    this.settingsSource = () => config
+    this.configArg = config
     this.resolvedDevice = this.resolveDevice()
     // 用户设置文档拥有组合条目之上的可编辑层：
     // 条目之上：每次提交的变更——以及设置服务的挂载或
     // 卸载——都会以新解析的值重启 hub 连接。
     // alpha.2 起模块级 installSettingsSection() 移除：经 inject(['settings'])
-    // 取提供方，调用 SettingsProvider.installSection()（hooks 形状不变，
-    // 参考上游 dsh-agent-default-model 的用法）。
-    ctx.inject(['settings'], (sctx) => {
-      sctx.settings.installSection(ctx, SETTINGS_NAMESPACE, YuyiRuntime.Config, config, {
-        setSource: (source) => { this.settingsSource = source },
-        onChange: () => { void this.reconnect() },
-      })
-    })
+    // 0.1.7：installSection 已移除——配置经 apply(ctx, config) 的 Volatile 引用
+    // 由 loader 原位热更，loader/volatile-update 事件触发重连（重新解析 hub/
+    // tokenEnv/device）。0.1.6 无此事件，热更走旧 installSection 路径（不存在
+    // 于 0.1.7），故此处仅需挂新事件；无监听也不影响初始启动。
+    ctx.on?.('loader/volatile-update', () => { void this.reconnect() })
     // 令牌是本适配器（dsh）的专属凭证：设置页经凭证域写入/清除后，
     // 凭此事件即时重连，不等下一次设置变更。alpha.x 起该事件更名
     // credentials/reference-updated（ref 参数为 CredentialRef，此处转字符串比较）。
@@ -169,7 +185,7 @@ export default class YuyiRuntime extends TypertRemoteService {
     // 立即进 roster（不带 alias——让 yuyi_register 显式接管别名），使 hub 侧的
     // findTargets 在跨设备广播/会话 ID 寻址时能命中本进程所有 live session，
     // 不再依赖用户手工 yuyi_register。
-    ctx.on('agent/created', (event: { agent: Agent }) => {
+    ctx.on('agent/created', (event: { agent: Agent }): undefined => {
       const agent = event.agent
       if (this.roster.has(agent.id)) return
       this.roster.set(agent.id, {
@@ -862,9 +878,10 @@ export default class YuyiRuntime extends TypertRemoteService {
     }
     const userMessage = createUserMessage({
       content: [{ type: 'text', text: formatIncoming(message) }],
+      // 0.1.7 生产者身份：kind 由本插件自注册（MessageSourceMap 扩展项），
+      // form/summary 是独立的信息形态轴。
       source: {
-        kind: 'plugin',
-        plugin: 'dsh-yuyi',
+        kind: 'yuyi',
         form: 'notice',
         summary: deliverySummary(message),
       },
@@ -918,7 +935,7 @@ export default class YuyiRuntime extends TypertRemoteService {
             timer = setTimeout(() => { reject(new Error('auto-result watch timeout')) }, AUTO_RESULT_TIMEOUT_MS)
           }),
         ])
-        const text = collectAssistantText(agent.session.events, baselineSeq)
+        const text = collectAssistantText(agent.session.snapshotEvents(), baselineSeq)
         if (text.length > 0) await this.autoReport(message, sessionId, text)
       } catch {
         // 回合中止/代理销毁/观察超时：静默放弃，等待方按自身超时收敛。

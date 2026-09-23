@@ -39,7 +39,7 @@ declare module '@deepseek-ai/cordis' {
 export default class YuyiRuntime extends TypertRemoteService {
     static Config: z<YuyiConfig>;
     static inject: string[];
-    private settingsSource;
+    private configArg;
     private readonly roster;
     private readonly aliasToSession;
     private readonly pendingReplies;
@@ -58,6 +58,11 @@ export default class YuyiRuntime extends TypertRemoteService {
       * @param config - 已校验的插件配置；兼任构造器所注册的
       * 用户设置节之下的 `base` 层，由本构造器注册。
      */
+    /**
+     * 配置读取（双运行时形态）：0.1.7 的 loader 传 Volatile 引用
+     * （config.hub.get()），0.1.6 传纯值。全部消费点经此解引。
+     */
+    private settingsSource;
     constructor(ctx: Context, config: YuyiConfig);
     /**
       * 重算后的连接快照。

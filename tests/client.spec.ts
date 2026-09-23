@@ -36,7 +36,7 @@ function stubbed(): Stubbed {
   const namespaces: string[] = []
   const statusReads = { count: 0 }
   const credentialCalls: Array<{ op: 'set' | 'unset'; ref: string; value?: string }> = []
-  const scope = { set: vi.fn(), unset: vi.fn(), getSnapshot: () => ({}), subscribe: () => () => {} }
+  const scope = { set: vi.fn(async () => true), unset: vi.fn(async () => true), getSnapshot: () => ({}), subscribe: () => () => {} }
   const yuyiFace = {
     status: () => {
       statusReads.count += 1
@@ -104,9 +104,10 @@ function stubbed(): Stubbed {
         },
       },
     },
-    settingsScope: {
-      bind: (spec: { namespace: string }) => {
-        namespaces.push(`scope:${String(spec.namespace)}`)
+    configForms: {
+      // 0.1.7：按 profile 条目 id 取配置表单（替代 settingsScope.bind）。
+      get: (entryId: string) => {
+        namespaces.push(`form:${String(entryId)}`)
         return scope
       },
     },
@@ -127,7 +128,7 @@ afterEach(() => {
 
 describe('dsh-yuyi browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.credentials', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.credentials', 'configForms'])
   })
 
   it('mounts the yuyi remote contribution', () => {
@@ -142,7 +143,7 @@ describe('dsh-yuyi browser half', () => {
   it('registers both dictionaries, the panel faces, and the settings namespace', () => {
     const { ctx, slots, namespaces } = stubbed()
     apply(ctx as never)
-    expect(namespaces).toEqual(['yuyiPanel', 'settings.yuyi', 'scope:yuyi'])
+    expect(namespaces).toEqual(['yuyiPanel', 'settings.yuyi', 'form:yuyi'])
     expect(slots.map(slot => [slot.name, slot.options['id']])).toEqual([
       ['shell.overlay', 'yuyi-panel'],
       ['tool.call.toolview', 'yuyi-yuyi_send'],

@@ -75,7 +75,7 @@ interface YuyiRemoteFace {
 }
 
 /* * 所需服务：插槽、字典、设置传输与类型化 Remote。 */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.credentials', 'settingsScope']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.credentials', 'configForms']
 
 /**
   * 客户端插件主体：挂载 Remote 贡献，注册
@@ -185,7 +185,9 @@ export function apply(ctx: ClientContext): void {
     }, Card))
   }
 
-  const scope = ctx.settingsScope.bind<YuyiSettingsValue>({ namespace: YUYI_SETTINGS_NAMESPACE })
+  // 0.1.7 配置面：configForms 按宿主 profile 条目 id 取表单（cordis.patch.yml
+  // 的 `- id: yuyi`，与设置命名空间同名）；可编辑字段 = schema 上 .volatile() 的键。
+  const scope = ctx.configForms.get<YuyiSettingsValue>(YUYI_SETTINGS_NAMESPACE)
   // 令牌操作面：值经凭证域只写不读，引用名取当前 tokenEnv 设置（默认
   // YUYI_TOKEN）。宿主凭证库（.credentials.yaml）是 dsh 适配器的专属
   // 存储——不与其他 Agent 共享环境变量；凭证写入经 `credentials/updated`
@@ -230,8 +232,12 @@ export function apply(ctx: ClientContext): void {
     t: sectionT,
     useSettings,
     useStatus,
-    save: (field: YuyiConnectionField, value: string | number) => scope.set(field, value),
-    reset: (field: YuyiConnectionField) => scope.unset(field),
+    save: async (field: YuyiConnectionField, value: string | number) => {
+      if (!(await scope.set(field, value))) throw new Error('保存未生效（配置版本冲突，请重试）')
+    },
+    reset: async (field: YuyiConnectionField) => {
+      if (!(await scope.unset(field))) throw new Error('还原未生效（配置版本冲突，请重试）')
+    },
       token: tokenStore,
   }
   ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(

@@ -28,12 +28,23 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
   }
   /* * 一次调用运行中或已落定的块。 */
   export type ToolCallBlock = RunningToolCall | ToolResultBlock
-  /* * 一个命名空间节上的设置作用域（宿主接缝的浏览器镜像）。 */
-  export interface SettingsScope<T> {
-    getSnapshot(): { status: 'loading' | 'ready' | 'unavailable'; value: T | undefined; user: unknown; writable: boolean }
+  /* * 0.1.7 配置表单快照（configForms 服务，settingsScope 的后继）。 */
+  export interface ConfigFormSnapshot<T> {
+    status: 'loading' | 'ready' | 'unavailable'
+    value: T | undefined
+    base: unknown
+    user: unknown
+    revision: number | undefined
+    writable: boolean
+    mode: 'host' | 'memory'
+  }
+  /* * 按 profile 条目 id 绑定的配置表单；set/unset 返回是否生效（false=版本冲突等）。 */
+  export interface ConfigForm<T> {
+    getSnapshot(): ConfigFormSnapshot<T>
     subscribe(listener: () => void): () => void
-    set(field: string, value: unknown): Promise<void>
-    unset(field: string): Promise<void>
+    mutate(ops: readonly unknown[], expectedRevision?: number): Promise<boolean>
+    set(field: string, value: unknown): Promise<boolean>
+    unset(field: string): Promise<boolean>
   }
   /* * 线路结果信封（Remote 与 api 域共用）。 */
   export type WireResult<T> = { ok: true; value: T } | { ok: false; error: { message?: string } }
@@ -66,8 +77,8 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
         }
       }
     }
-    settingsScope: {
-      bind<T>(spec: { namespace: string }): SettingsScope<T>
+    configForms: {
+      get<T>(entryId: string): ConfigForm<T>
     }
     slots: {
       inject(slot: string, register: () => unknown): void
