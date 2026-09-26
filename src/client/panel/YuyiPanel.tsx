@@ -12,6 +12,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import { Pill, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TaskView, YuyiCollabSnapshot, YuyiStatus } from '../../types.ts'
 import { NS, type YuyiPanelKey } from './locales.ts'
+import { useDockPresent } from '../dock-handshake.ts'
 import type { YuyiPanelStore } from './store.ts'
 import {
   inboxRows, panelModel, taskStatusOf, dagLayout, upstreamOf, interpolate,
@@ -118,10 +119,14 @@ export function YuyiPanel(props: YuyiPanelProps): JSX.Element | null {
   }, [onChange, refresh])
 
   const tKey = t as (key: YuyiPanelKey) => string
+  // v0.1.11：套件状态坞（dsh-twin suite-dock）在场 → 拉手让位（渲染 null），
+  // dock 的御驿行经 `suite-dock:yuyi-open` 事件回开本面板；dock 缺席自动回归。
+  const dockPresent = useDockPresent()
 
   // 关闭态：右缘拉手（对话区域内的常驻入口，不占标题栏）。
   // 状态点复用既有的轮询快照：configured/connected 才点亮。
   if (!open) {
+    if (dockPresent) return null
     return (
       <button
         type="button"

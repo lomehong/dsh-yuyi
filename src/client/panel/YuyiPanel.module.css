@@ -5,9 +5,9 @@
 
 .panel {
   position: absolute;
-  /* 顶端让开标题栏+视图标签行，底端让开输入区/发送区——
-     不与窗口控制按钮和 composer 争位。 */
-  top: 80px;
+  /* 顶端让开标题栏+视图标签行（v0.1.11：96px——桌面壳头部更高，80 会擦碰），
+     底端让开输入区/发送区——不与窗口控制按钮和 composer 争位。 */
+  top: 96px;
   right: 12px;
   bottom: 140px;
   width: 340px;
@@ -551,8 +551,11 @@
 
 .railTab {
   position: absolute;
-  /* 与面板顶边（top: 80px）对齐，展开/收起时视觉连续。 */
-  top: 80px;
+  /* v0.1.11 改为底部锚定（右下角存在体上方）：顶部角落带（原生工具行 +
+     套件状态坞）不再参与——dock 在场时本拉手整体让位，此处是 dock 缺席
+     （twin 未装）时的回落形态。 */
+  top: auto;
+  bottom: 160px;
   right: 0;
   display: flex;
   flex-direction: column;

@@ -145,6 +145,36 @@ export function apply(ctx: ClientContext): void {
   }
   const panelStore = createPanelStore()
 
+  // 套件状态坞契约（v0.1.11；常量拷贝自 dsh-twin suite-dock-model.ts）：
+  // ① 广播连接态与面板开合（dock 御驿行的状态点 + 面板展开期 dock 暂避）；
+  // ② 监听 `suite-dock:yuyi-open` —— dock 点击御驿行时回开本面板。
+  // 同步 effect 发首帧广播（dock 5s 等待窗内到达，避免误判缺席）。
+  ctx.effect(() => {
+    if (typeof window === 'undefined') return undefined // node 测试环境：无 DOM 契约面
+    const broadcast = (): void => {
+      try {
+        const status = mirror.getSnapshot().current
+        window.dispatchEvent(new CustomEvent('suite-dock:yuyi-status', {
+          detail: {
+            configured: status?.configured === true,
+            connected: status?.connected === true,
+            panelOpen: panelStore.getSnapshot() === true,
+          },
+        }))
+      } catch { /* 非 DOM 环境静默 */ }
+    }
+    const offPanel = panelStore.subscribe(broadcast)
+    const offMirror = mirror.subscribe(broadcast)
+    const onDockOpen = (): void => { panelStore.open() }
+    window.addEventListener('suite-dock:yuyi-open', onDockOpen)
+    broadcast()
+    return () => {
+      offPanel()
+      offMirror()
+      window.removeEventListener('suite-dock:yuyi-open', onDockOpen)
+    }
+  }, 'dsh-yuyi: suite-dock contract')
+
   // 已配置御驿但用户从未选择过关合 → 首个状态快照到达时自动展开
   // 面板（协同可视化是本插件的核心可见面，不能只靠一个隐蔽的
   // 头部小钮）。用户一旦手动开合过（localStorage 有记录），
