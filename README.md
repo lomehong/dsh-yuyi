@@ -1,5 +1,8 @@
 # dsh-yuyi
 
+> **v0.1.11**：右缘拉手改为底部锚定（bottom: 160）+ 面板顶端 96——桌面壳头部更高不再擦碰；接入套件状态坞契约（suite-dock:yuyi-open 回开面板 / suite-dock:yuyi-status 广播连接态，dock 在场时拉手让位，缺席自动回归）。
+
+
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的御驿通信插件：带唤醒投递的 Hub WebSocket 接缝、会话 roster、十八个模型可用的 `yuyi_*` 工具、跨会话任务记忆与协同活动面板（shell.overlay 浮层 + 会话内工具卡片）——以仓库外 profile bundle 形式交付。
 
 ## 内容
