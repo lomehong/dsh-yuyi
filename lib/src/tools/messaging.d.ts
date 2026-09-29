@@ -6,6 +6,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { PeerDevice } from '../service.ts';
+import type YuyiRuntime from '../service.ts';
 import { type TaskRecordOutcome } from './task-record.ts';
 export interface StatusSessionRow {
     sessionId: string;
@@ -67,6 +68,8 @@ export declare function renderPeers(value: PeersValue): string;
 export declare function renderInbox(value: InboxValue): string;
 /**
   * 在调用上下文的工具注册表上注册五个消息工具。
-  * @param ctx - 插件上下文（工具注册表与 yuyi 服务在场）。
+  * @param ctx - 插件上下文（工具注册表在场）。
+  * @param yuyiOverride - yuyi 运行时实例（全模式注册路径：宿主插件直接传入
+  *  自身实例；缺省回落 `ctx.yuyi`——预设行挂载路径兼容）。
  */
-export declare function applyMessagingTools(ctx: Context): void;
+export declare function applyMessagingTools(ctx: Context, yuyiOverride?: YuyiRuntime): void;

@@ -5,6 +5,7 @@
  * @module dsh-yuyi/tools/tasks
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type YuyiRuntime from '../service.ts';
 import { type TaskRecordOutcome } from './task-record.ts';
 export interface TaskEventValue {
     taskId: string;
@@ -66,4 +67,4 @@ export interface TaskContinueValue {
   * 在调用上下文的工具注册表上注册十三个任务工具。
   * @param ctx - 插件上下文（工具注册表与 yuyi 服务在场）。
  */
-export declare function applyTaskTools(ctx: Context): void;
+export declare function applyTaskTools(ctx: Context, yuyiOverride?: YuyiRuntime): void;

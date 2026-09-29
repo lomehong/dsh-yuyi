@@ -169,8 +169,8 @@ function renderEvent(value: TaskEventValue): string {
   * 在调用上下文的工具注册表上注册十三个任务工具。
   * @param ctx - 插件上下文（工具注册表与 yuyi 服务在场）。
  */
-export function applyTaskTools(ctx: Context): void {
-  const yuyi: YuyiRuntime = ctx.yuyi
+export function applyTaskTools(ctx: Context, yuyiOverride?: YuyiRuntime): void {
+  const yuyi: YuyiRuntime = yuyiOverride ?? ctx.yuyi
 
   ctx.tools.register(defineTool({
     name: 'yuyi_task_attach',

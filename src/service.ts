@@ -28,6 +28,7 @@ import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { registerYuyiTools } from './tools/index.ts'
 import {
   HubClient,
   appendTaskRecord,
@@ -202,6 +203,30 @@ export default class YuyiRuntime extends TypertRemoteService {
       this.disposed = true
       this.stop()
     }, 'dsh-yuyi: connection')
+    // v0.2.0 全模式工具注册（宪章 §0：协同位阶是实例级能力）：yuyi_* 工具
+    // 不再依赖预设行挂载——本插件加载即向宿主工具表注册，任何 agent 预设
+    // （标准/PTC/极简/创造/数字分身）的会话都可达其他 agent。宿主
+    // tools/systemPrompt 服务未就绪时短重试兜底（对齐 dsh-memory
+    // registerPackSection 先例）；40 次（10s）仍缺席则降级为预设行路径
+    // （digital-twin 会话仍覆盖）。
+    try {
+      let attempts = 0
+      const tryRegister = (): void => {
+        attempts += 1
+        const host = ctx as unknown as { tools?: { register?: unknown }; systemPrompt?: { section?: unknown } }
+        const toolsReady = host.tools !== undefined
+          && typeof (host.tools as { register?: unknown }).register === 'function'
+        const spReady = host.systemPrompt !== undefined
+          && typeof (host.systemPrompt as { section?: unknown }).section === 'function'
+        if (toolsReady && spReady) {
+          registerYuyiTools(ctx, this)
+          return
+        }
+        if (attempts < 40) setTimeout(tryRegister, 250)
+        else console.warn('[dsh-yuyi] tools/systemPrompt 服务 10s 未就绪——yuyi_* 全模式注册跳过（digital-twin 预设行路径仍覆盖）')
+      }
+      tryRegister()
+    } catch { /* 全模式注册失败降级为预设行路径，绝不击穿宿主 */ }
     void this.reconnect()
   }
 
