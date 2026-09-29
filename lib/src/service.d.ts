@@ -240,3 +240,19 @@ export default class YuyiRuntime extends TypertRemoteService {
     private emitDelivered;
     private emitStatus;
 }
+/**
+ * 令牌来源裁决（纯函数，回归测试 tests/token-source.spec.ts）。
+ *
+ * 优先级：凭证库命中（source ≠ 'env'，用户在设置页显式写入）>
+ * dsh-token 文件（安装器写的 per-agent 真身）> env 继承（仅兜底）。
+ *
+ * 为什么 env 继承层垫底：凭证服务的 resolve 会先命中 launchEnvironment
+ * "process" 层——YUYI_TOKEN 的进程 env 是已知污染源（opencode 安装器写
+ * 用户级 env，dsh 应用进程启动时冻结继承，用户级变量删除后每次重启仍
+ * 复发）。生产实证：凭证库已是 hub 认可的有效令牌，连接仍报
+ * invalid or revoked agent token，进程 env 里正是被吊销的旧值。
+ */
+export declare function selectTokenSource(hit: {
+    value: string;
+    source: string;
+} | undefined, fileToken: string | undefined): string | undefined;
