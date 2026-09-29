@@ -29,6 +29,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { registerYuyiTools } from './tools/index.ts'
+import { applyMessagingTools } from './tools/messaging.ts'
+import { applyTaskTools } from './tools/tasks.ts'
 import {
   HubClient,
   appendTaskRecord,
@@ -203,37 +205,38 @@ export default class YuyiRuntime extends TypertRemoteService {
       this.disposed = true
       this.stop()
     }, 'dsh-yuyi: connection')
-    // v0.2.1 收敛式全模式工具注册（宪章 §0：协同位阶是实例级能力）：
-    // yuyi_* 工具不再依赖预设行挂载——本插件加载即向宿主工具表注册，任何
-    // agent 预设（标准/PTC/极简/创造/数字分身）的会话都可达其他 agent。
-    // v0.2.0 的 40×250ms 上限在服务冷启动（tools/systemPrompt 服务迟到）时
-    // 会放弃（2026-09-29 实测：标准会话拿不到 yuyi_* 工具）。改为收敛式：
-    // 立即尝试 + 1s 周期重试 + 每次 agent/created 事件补挂，直到工具与指引段
-    // 都注册成功后自清；10 分钟护栏兜底（宿主异常路径）——digital-twin 预设行
-    // 路径仍覆盖 twin 会话。
-    let toolsDone = false
-    let sectionDone = false
-    const ensureYuyiTools = (): void => {
+    // v0.2.2 按 agent 挂载（对齐 memory v0.3.0 先例——工具注册进 agent 上下文
+    // 才能被该会话看到；宿主级一次性注册只覆盖新建会话，既有会话永远拿不到
+    // —— 这就是 v0.2.1 的问题）。挂载点：agent/created（新会话）+
+    // agent/status（兜底补挂既有会话）；WeakSet 按会话幂等。
+    const yuyiMounted = new WeakSet<object>()
+    const mountYuyi = (agentCtx: unknown): void => {
+      if (agentCtx === null || typeof agentCtx !== 'object' || yuyiMounted.has(agentCtx)) return
+      yuyiMounted.add(agentCtx)
       try {
-        const r = registerYuyiTools(ctx, this, { skipTools: toolsDone, skipSection: sectionDone })
-        if (r.tools) toolsDone = true
-        if (r.section) sectionDone = true
-        if (toolsDone && sectionDone) ctx.logger?.info?.('[dsh-yuyi] yuyi_* 工具已全模式注册（覆盖所有 agent 预设的会话）')
-      } catch { /* 注册失败：下个周期再试 */ }
-    }
-    ensureYuyiTools()
-    const yuyiToolsTimer = setInterval(() => {
-      ensureYuyiTools()
-      if (toolsDone && sectionDone) clearInterval(yuyiToolsTimer)
-    }, 1000)
-    yuyiToolsTimer.unref?.()
-    ctx.on?.('agent/created', (event: { agent: Agent }): undefined => { ensureYuyiTools() })
-    setTimeout(() => {
-      if (!(toolsDone && sectionDone)) {
-        clearInterval(yuyiToolsTimer)
-        console.warn('[dsh-yuyi] 全模式工具注册 10 分钟未完成——已放弃（digital-twin 预设行路径仍覆盖 twin 会话）')
+        applyMessagingTools(agentCtx as Context, this)
+        applyTaskTools(agentCtx as Context, this)
+      } catch (e) {
+        yuyiMounted.delete(agentCtx as object) // 失败允许后续事件重试
+        console.warn('[dsh-yuyi] yuyi_* 工具挂载失败（该会话降级缺席）:', e instanceof Error ? e.message : String(e))
       }
-    }, 10 * 60_000).unref?.()
+    }
+    ctx.on?.('agent/created', (event: { agent: Agent }): undefined => {
+      // roster 同步 + 给新会话挂 yuyi_* 工具（全模式）
+      const agent = event.agent
+      if (agent !== undefined && !this.roster.has(agent.id)) {
+        this.roster.set(agent.id, { sessionId: agent.id, title: '', directory: '' })
+        this.pushRoster()
+      }
+      const agentCtx = (agent as { ctx?: unknown } | undefined)?.ctx
+      if (agentCtx !== undefined) mountYuyi(agentCtx)
+      return undefined
+    })
+    ctx.on?.('agent/status', (payload: unknown): undefined => {
+      const agentCtx = (payload as { agent?: { ctx?: unknown } } | undefined)?.agent?.ctx
+      if (agentCtx !== undefined) mountYuyi(agentCtx)
+      return undefined
+    })
     void this.reconnect()
   }
 
