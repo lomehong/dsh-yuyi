@@ -16,7 +16,7 @@
  */
 
 import { hostname, homedir } from 'node:os'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -183,6 +183,19 @@ export default class YuyiRuntime extends TypertRemoteService {
     // credentials/reference-updated（ref 参数为 CredentialRef，此处转字符串比较）。
     ctx.on('credentials/reference-updated', (ref) => {
       if (String(ref) === this.settingsSource().tokenEnv) void this.reconnect()
+      // P2 遗留文件镜像：~/.yuyi/dsh-token 的直接读取方（安装器 per-agent 约定）
+      // 依赖它——凭证域更新后同步镜像，消除「设置保存成功但遗留文件仍旧值」
+      // 的双源漂移（2026-10-08 主人实测踩坑）。镜像失败不阻断重连。
+      void (async () => {
+        try {
+          const value = await this.resolveToken()
+          if (value === undefined || value === '') return
+          const dir = join(homedir(), '.yuyi')
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(join(dir, 'dsh-token'), value, 'utf8')
+          this.ctx.logger?.info?.('[dsh-yuyi] token 已镜像至 ~/.yuyi/dsh-token')
+        } catch { /* 镜像失败不阻断重连 */ }
+      })()
     })
     // Roster 跟随 live agent 集合自动同步：每个 announce 的 opencode session
     // 立即进 roster（不带 alias——让 yuyi_register 显式接管别名），使 hub 侧的
