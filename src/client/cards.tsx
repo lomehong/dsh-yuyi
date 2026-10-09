@@ -7,7 +7,7 @@
   * 宿主标题栏——header.utilities 在桌面壳里与窗口按钮重叠。）
  */
 import type { JSX } from 'react'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolArgsView, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { YuyiPanelKey } from './panel/locales.ts'
 import { interpolate } from './panel/model.ts'
 import type { YuyiPanelStore } from './panel/store.ts'
@@ -31,18 +31,38 @@ function isRunning(block: ToolCallBlock): boolean {
   return (block as { kind?: string }).kind !== 'tool-result'
 }
 
-/* * 解析调用的参数 JSON（两侧形态都带 argsRaw）。 */
-function argsOf(block: ToolCallBlock): Record<string, unknown> {
+/* * 取参数懒视图（0.2.1 三阶段统一携带；旧运行时 undefined）。 */
+function lazyArgsOf(block: ToolCallBlock): ToolArgsView | undefined {
+  const view = isRunning(block)
+    ? (block as { args?: ToolArgsView }).args
+    : (block as { call: { args?: ToolArgsView } | null }).call?.args
+  return view !== undefined && typeof view.get === 'function' ? view : undefined
+}
+
+/**
+ * 读参数（键控读取）：0.2.1 懒视图优先——流式生成期即可读已到达的字段；
+ * 视图缺席（旧运行时）或该字段尚未到达时回退 argsRaw 全量解析（容错残缺 JSON）。
+ */
+function argsOf(block: ToolCallBlock, keys: readonly string[]): Record<string, unknown> {
   const raw = isRunning(block)
     ? (block as { argsRaw: string }).argsRaw
     : (block as { call: { argsRaw: string } | null }).call?.argsRaw
-  if (raw === undefined || raw === null) return {}
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
+  let parsed: Record<string, unknown> = {}
+  if (raw !== undefined && raw !== null) {
+    try {
+      const value: unknown = JSON.parse(raw)
+      if (typeof value === 'object' && value !== null) parsed = value as Record<string, unknown>
+    } catch { /* 流式残缺 JSON：交给懒视图补 */ }
   }
+  const view = lazyArgsOf(block)
+  if (view !== undefined) {
+    for (const key of keys) {
+      if (parsed[key] !== undefined) continue
+      const value: unknown = view.get(key)
+      if (value !== undefined) parsed[key] = value
+    }
+  }
+  return parsed
 }
 
 /* * 解析落定结果的正文文本（首个 text 块）。 */
@@ -87,7 +107,7 @@ function CardHead({ title, to, badge }: { title: string; to?: string; badge?: { 
 /* * yuyi_send 卡：发给了谁、正文预览、投递方式（实时/入箱）。 */
 export function YuyiSendCard(props: CollabCardProps): JSX.Element {
   const { t, panel, block } = props
-  const args = argsOf(block) as { to?: string; text?: string }
+  const args = argsOf(block, ['to', 'text']) as { to?: string; text?: string }
   const result = resultValue<{ deliveredAs?: 'notify' | 'mail_fallback'; handlerSessionID?: string }>(block)
   const delivered = result?.deliveredAs
   return (
@@ -106,7 +126,7 @@ export function YuyiSendCard(props: CollabCardProps): JSX.Element {
 /* * yuyi_task_continue 卡：任务轮次——目标、回信人与回信预览。 */
 export function YuyiTaskContinueCard(props: CollabCardProps): JSX.Element {
   const { t, panel, block } = props
-  const args = argsOf(block) as { task_id?: string; message?: string; to?: string }
+  const args = argsOf(block, ['task_id', 'message', 'to']) as { task_id?: string; message?: string; to?: string }
   const result = resultValue<{ to?: string; replyText?: string; replyFrom?: string }>(block)
   const to = result?.to ?? args.to
   return (
@@ -128,7 +148,7 @@ export function YuyiTaskContinueCard(props: CollabCardProps): JSX.Element {
 /* * yuyi_task_show 卡：任务链投影——轮次、验收进度、依赖。 */
 export function YuyiTaskShowCard(props: CollabCardProps): JSX.Element {
   const { t, panel, block } = props
-  const args = argsOf(block) as { task_id?: string }
+  const args = argsOf(block, ['task_id']) as { task_id?: string }
   const result = resultValue<{
     taskId?: string; round?: number; pendingTarget?: string; closed?: boolean; archived?: boolean
     goal?: { description?: string; criteria?: string[] }
